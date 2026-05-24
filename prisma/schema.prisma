@@ -27,6 +27,7 @@ model Project {
   state         ProjectState  @default(CREATED)
   
   siteAudit     SiteAudit?
+  sources       ContentSource[]
   competitors   Competitor[]
   strategy      Strategy?
   contentPlan   ContentPlan?
@@ -38,6 +39,8 @@ model Project {
 
 enum ProjectState {
   CREATED
+  SOURCES_ANALYZING
+  SOURCES_ANALYZED
   SITE_AUDIT_RUNNING
   SITE_AUDIT_COMPLETE
   SITE_AUDIT_APPROVED
@@ -258,4 +261,19 @@ model CMSConnection {
   lastTestedAt DateTime?
   
   createdAt    DateTime  @default(now())
+}
+
+model ContentSource {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type          String   // "WEBSITE", "YOUTUBE", "INSTAGRAM", "CUSTOM"
+  url           String?
+  identifier    String?  // @handle, username, etc.
+  displayName   String
+  status        String   @default("PENDING") // PENDING, FETCHING, ANALYZED, FAILED
+  extractedData Json?    // JSON with tone, audience, keywords, topics, recentItems
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

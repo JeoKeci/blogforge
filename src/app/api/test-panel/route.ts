@@ -23,6 +23,7 @@ export async function POST(request: Request) {
       await prisma.article.deleteMany({ where: { id: articleId } });
       await prisma.articlePlan.deleteMany({ where: { id: articlePlanId } });
       await prisma.contentPlan.deleteMany({ where: { id: contentPlanId } });
+      await prisma.contentSource.deleteMany({ where: { projectId } });
       await prisma.project.deleteMany({ where: { id: projectId } });
       await prisma.user.deleteMany({ where: { id: userId } });
 
@@ -33,6 +34,27 @@ export async function POST(request: Request) {
 
       await prisma.project.create({
         data: { id: projectId, userId, name: 'Test Project', siteUrl: 'https://example.com', state: 'CREATED', createdAt: now, updatedAt: now },
+      });
+
+      // Seed default footprint sources for Phase 1.5
+      await prisma.contentSource.create({
+        data: {
+          projectId,
+          type: 'WEBSITE',
+          url: 'https://geocenter.com',
+          displayName: 'GeoCenter Blog',
+          status: 'PENDING'
+        }
+      });
+
+      await prisma.contentSource.create({
+        data: {
+          projectId,
+          type: 'YOUTUBE',
+          identifier: '@GeocKece',
+          displayName: '@GeocKece Kanalı',
+          status: 'PENDING'
+        }
       });
 
       await prisma.contentPlan.create({
@@ -88,7 +110,7 @@ export async function POST(request: Request) {
 
     // ─── TRIGGER: Dispatch the next section to Celery ───
     if (action === 'trigger_next') {
-      const articleId = 'test-article-id';
+      const articleId = body.articleId || 'test-article-id';
 
       // Get the article with its plan and existing sections
       const article = await prisma.article.findUnique({
@@ -156,7 +178,7 @@ export async function POST(request: Request) {
 
     // ─── TRIGGER ALL: Dispatch all remaining sections sequentially ───
     if (action === 'trigger_all') {
-      const articleId = 'test-article-id';
+      const articleId = body.articleId || 'test-article-id';
 
       const article = await prisma.article.findUnique({
         where: { id: articleId },

@@ -3,35 +3,58 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './test-panel.css';
 
-interface Section {
+interface Source {
   id: string;
-  order: number;
-  headingTitle: string;
+  type: string;
+  url?: string;
+  identifier?: string;
+  displayName: string;
+  status: string;
+  errorMessage?: string;
+  extractedData?: any;
+}
+
+interface Strategy {
+  id: string;
+  summary: string;
+  targetKeywords: any; // Array of { cluster, keywords }
+  contentPillars: string[];
+  geoTargets: string[];
+  contentMix: Record<string, number>;
+  monthlyTarget: number;
+  version: number;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  state: string;
+  siteUrl: string;
+}
+
+interface ArticleInfo {
+  id: string;
+  title: string;
+  state: string;
+  wordCount: number;
+  progress: { completed: number; total: number } | null;
+}
+
+interface ActiveArticle {
+  id: string;
+  title: string;
+  state: string;
   wordCount: number;
   htmlContent: string;
-  createdAt: string;
-}
-
-interface OutlineItem {
-  title: string;
-  level: number;
-}
-
-interface ArticleStatus {
-  exists: boolean;
-  message?: string;
-  article?: {
+  articlePlan: any;
+  sections: Array<{
     id: string;
-    title: string;
-    state: string;
+    order: number;
+    headingTitle: string;
     wordCount: number;
     htmlContent: string;
-    createdAt: string;
-    updatedAt: string;
-  };
-  outline?: OutlineItem[];
-  sections?: Section[];
-  progress?: {
+  }>;
+  progress: {
     completed: number;
     total: number;
     percentage: number;
@@ -49,12 +72,28 @@ function getTimeString(): string {
 }
 
 export default function TestPanelPage() {
-  const [status, setStatus] = useState<ArticleStatus | null>(null);
-  const [loading, setLoading] = useState<string | null>(null); // which button is loading
+  const [statusExists, setStatusExists] = useState(false);
+  const [project, setProject] = useState<Project | null>(null);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [strategy, setStrategy] = useState<Strategy | null>(null);
+  const [articles, setArticles] = useState<ArticleInfo[]>([]);
+  const [activeArticle, setActiveArticle] = useState<ActiveArticle | null>(null);
+  const [selectedArticleId, setSelectedArticleId] = useState<string>('');
+
+  const [loading, setLoading] = useState<string | null>(null); // which button/action is loading
   const [autoMode, setAutoMode] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [polling, setPolling] = useState(false);
   const [workerOnline, setWorkerOnline] = useState(false);
+  
+  // Form State for new source
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newSourceType, setNewSourceType] = useState<'WEBSITE' | 'YOUTUBE' | 'INSTAGRAM' | 'CUSTOM'>('WEBSITE');
+  const [newSourceUrl, setNewSourceUrl] = useState('');
+  const [newSourceIdentifier, setNewSourceIdentifier] = useState('');
+  const [newSourceDisplayName, setNewSourceDisplayName] = useState('');
+  const [newSourceTextContent, setNewSourceTextContent] = useState('');
+
   const logContainerRef = useRef<HTMLDivElement>(null);
   const autoModeRef = useRef(autoMode);
   const prevSectionsCountRef = useRef(0);
@@ -76,23 +115,45 @@ export default function TestPanelPage() {
   }, [logs]);
 
   // Fetch status
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useCallback(async (forcedArticleId?: string) => {
     try {
-      const res = await fetch('/api/test-panel/status');
-      const data: ArticleStatus = await res.json();
-      setStatus(data);
-
-      // Detect worker online from section changes
-      if (data.sections && data.sections.length > 0) {
-        setWorkerOnline(true);
+      const targetArticleId = forcedArticleId || selectedArticleId;
+      const url = `/api/test-panel/status${targetArticleId ? `?selectedArticleId=${targetArticleId}` : ''}`;
+      
+      const res = await fetch(url);
+      const data = await res.json();
+      
+      if (data.exists) {
+        setStatusExists(true);
+        setProject(data.project);
+        setSources(data.sources || []);
+        setStrategy(data.strategy || null);
+        setArticles(data.articles || []);
+        setActiveArticle(data.activeArticle || null);
+        
+        if (data.activeArticle && !selectedArticleId && !forcedArticleId) {
+          setSelectedArticleId(data.activeArticle.id);
+        }
+        
+        // Detect worker online from active sections
+        if (data.activeArticle?.sections && data.activeArticle.sections.length > 0) {
+          setWorkerOnline(true);
+        }
+      } else {
+        setStatusExists(false);
+        setProject(null);
+        setSources([]);
+        setStrategy(null);
+        setArticles([]);
+        setActiveArticle(null);
       }
 
       return data;
     } catch {
-      addLog('Status sorgusu başarısız.', 'error');
+      addLog('Durum sorgusu başarısız.', 'error');
       return null;
     }
-  }, [addLog]);
+  }, [selectedArticleId, addLog]);
 
   // Initial load
   useEffect(() => {
@@ -105,19 +166,19 @@ export default function TestPanelPage() {
     const interval = setInterval(async () => {
       const data = await fetchStatus();
 
-      if (data?.article?.state === 'PREVIEW_READY') {
+      if (data?.activeArticle?.state === 'PREVIEW_READY') {
         setPolling(false);
         setLoading(null);
-        addLog('✅ Tüm bölümler tamamlandı! Makale PREVIEW_READY durumunda.', 'success');
+        addLog(`✅ "${data.activeArticle.title}" makalesinin tüm bölümleri tamamlandı!`, 'success');
         return;
       }
 
       // Auto-mode: detect newly completed section and trigger next
-      if (autoModeRef.current && data?.sections && data?.progress) {
-        const newCount = data.sections.length;
-        if (newCount > prevSectionsCountRef.current && newCount < data.progress.total) {
+      if (autoModeRef.current && data?.activeArticle?.sections && data?.activeArticle?.progress) {
+        const newCount = data.activeArticle.sections.length;
+        if (newCount > prevSectionsCountRef.current && newCount < data.activeArticle.progress.total) {
           prevSectionsCountRef.current = newCount;
-          const lastSection = data.sections[data.sections.length - 1];
+          const lastSection = data.activeArticle.sections[data.activeArticle.sections.length - 1];
           addLog(`✅ "${lastSection.headingTitle}" tamamlandı (${lastSection.wordCount} kelime). Sıradaki tetikleniyor...`, 'success');
           // Trigger next
           triggerNext(true);
@@ -128,11 +189,18 @@ export default function TestPanelPage() {
     return () => clearInterval(interval);
   }, [polling, fetchStatus, addLog]);
 
+  // Select another article
+  const selectArticle = (id: string) => {
+    setSelectedArticleId(id);
+    fetchStatus(id);
+    addLog(`Önizleme makalesi değiştirildi.`, 'info');
+  };
+
   // ─── Actions ───
 
   async function handleSeed() {
     setLoading('seed');
-    addLog('🔄 Veritabanı sıfırlanıp yeniden seed ediliyor...', 'info');
+    addLog('🔄 Veritabanı sıfırlanıp test verileri ve varsayılan kaynaklar kuruluyor...', 'info');
     try {
       const res = await fetch('/api/test-panel', {
         method: 'POST',
@@ -141,27 +209,114 @@ export default function TestPanelPage() {
       });
       const data = await res.json();
       if (data.success) {
-        addLog('✅ Test verisi başarıyla oluşturuldu.', 'success');
+        addLog('✅ Test veritabanı başarıyla seed edildi. Varsayılan kaynaklar eklendi.', 'success');
         prevSectionsCountRef.current = 0;
+        setSelectedArticleId('');
         await fetchStatus();
       } else {
         addLog(`❌ Seed hatası: ${data.error}`, 'error');
       }
     } catch (e: unknown) {
-      addLog(`❌ Seed hatası: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+      addLog(`❌ Seed hatası: ${e instanceof Error ? e.message : 'Bilinmeyen hata'}`, 'error');
+    }
+    setLoading(null);
+  }
+
+  async function handleAddSource(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading('addSource');
+    try {
+      const res = await fetch('/api/test-panel/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: newSourceType,
+          url: newSourceUrl,
+          identifier: newSourceIdentifier,
+          displayName: newSourceDisplayName,
+          textContent: newSourceTextContent
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog(`✅ Kaynak eklendi: ${data.source.displayName}`, 'success');
+        setNewSourceUrl('');
+        setNewSourceIdentifier('');
+        setNewSourceDisplayName('');
+        setNewSourceTextContent('');
+        setShowAddForm(false);
+        await fetchStatus();
+      } else {
+        addLog(`❌ Kaynak ekleme hatası: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Kaynak ekleme hatası: ${e.message}`, 'error');
+    }
+    setLoading(null);
+  }
+
+  async function handleDeleteSource(id: string, name: string) {
+    if (!confirm(`"${name}" kaynağını silmek istediğinize emin misiniz?`)) return;
+    try {
+      const res = await fetch(`/api/test-panel/sources?id=${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog(`🗑️ Kaynak silindi: ${name}`, 'info');
+        await fetchStatus();
+      } else {
+        addLog(`❌ Kaynak silme hatası: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Kaynak silme hatası: ${e.message}`, 'error');
+    }
+  }
+
+  async function handleAnalyzeSources() {
+    setLoading('analyze');
+    addLog('🔄 Dijital kaynaklar analiz ediliyor ve birleşik plan oluşturuluyor (Gemini + Scrapers)...', 'info');
+    try {
+      const res = await fetch('/api/test-panel/analyze-sources', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog('✅ Tüm kaynaklar başarıyla analiz edildi!', 'success');
+        addLog('✅ Yeni birleşik içerik stratejisi ve makale taslakları oluşturuldu.', 'success');
+        
+        // Load the first new article
+        const firstNewArticle = data.articles?.[0]?.article;
+        if (firstNewArticle) {
+          setSelectedArticleId(firstNewArticle.id);
+          await fetchStatus(firstNewArticle.id);
+        } else {
+          await fetchStatus();
+        }
+      } else {
+        addLog(`❌ Analiz Hatası: ${data.error}`, 'error');
+        await fetchStatus();
+      }
+    } catch (e: any) {
+      addLog(`❌ Analiz Hatası: ${e.message}`, 'error');
+      await fetchStatus();
     }
     setLoading(null);
   }
 
   async function triggerNext(isAutoCall = false) {
+    if (!activeArticle) {
+      addLog('❌ Aktif seçili makale yok.', 'error');
+      return;
+    }
     if (!isAutoCall) setLoading('trigger');
-    if (!isAutoCall) addLog('🚀 Sıradaki bölüm Celery\'ye gönderiliyor...', 'info');
+    if (!isAutoCall) addLog(`🚀 "${activeArticle.title}" için sıradaki bölüm Celery'ye gönderiliyor...`, 'info');
 
     try {
       const res = await fetch('/api/test-panel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'trigger_next' }),
+        body: JSON.stringify({ action: 'trigger_next', articleId: activeArticle.id }),
       });
       const data = await res.json();
       if (data.success) {
@@ -174,21 +329,24 @@ export default function TestPanelPage() {
         addLog(`❌ Tetikleme hatası: ${data.error}`, 'error');
       }
     } catch (e: unknown) {
-      addLog(`❌ Tetikleme hatası: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error');
+      addLog(`❌ Tetikleme hatası: ${e instanceof Error ? e.message : 'Bilinmeyen hata'}`, 'error');
     }
     if (!isAutoCall) setLoading(null);
   }
 
   async function handleTriggerAll() {
+    if (!activeArticle) {
+      addLog('❌ Aktif seçili makale yok.', 'error');
+      return;
+    }
     setAutoMode(true);
     autoModeRef.current = true;
     setLoading('triggerAll');
-    addLog('🤖 Otomatik mod aktif — tüm bölümler sırayla yazılacak.', 'info');
+    addLog(`🤖 Otomatik mod aktif — "${activeArticle.title}" bölümleri sırayla yazılacak.`, 'info');
 
-    // Get current status to know where we are
     const data = await fetchStatus();
-    if (data?.sections) {
-      prevSectionsCountRef.current = data.sections.length;
+    if (data?.activeArticle?.sections) {
+      prevSectionsCountRef.current = data.activeArticle.sections.length;
     }
 
     await triggerNext(true);
@@ -210,16 +368,16 @@ export default function TestPanelPage() {
   }
 
   function getStepStatus(index: number): 'complete' | 'active' | 'pending' {
-    if (!status?.sections) return 'pending';
-    const completedCount = status.sections.length;
+    if (!activeArticle?.sections) return 'pending';
+    const completedCount = activeArticle.sections.length;
     if (index < completedCount) return 'complete';
-    if (index === completedCount && status.article?.state === 'WRITING') return 'active';
+    if (index === completedCount && activeArticle.state === 'WRITING') return 'active';
     return 'pending';
   }
 
-  const isWriting = status?.article?.state === 'WRITING' && polling;
-  const isDone = status?.article?.state === 'PREVIEW_READY';
-  const hasArticle = status?.exists && status.article;
+  const isWriting = activeArticle?.state === 'WRITING' && polling;
+  const isDone = activeArticle?.state === 'PREVIEW_READY';
+  const hasArticle = statusExists && activeArticle;
 
   return (
     <div className="testPanel">
@@ -229,7 +387,7 @@ export default function TestPanelPage() {
           <div className="logo">⚡</div>
           <div>
             <h1 className="headerTitle">BlogForge Test Panel</h1>
-            <p className="headerSubtitle">Faz 1 MVP — Geliştirici Test Arayüzü</p>
+            <p className="headerSubtitle">Faz 1.5 — Çoklu Kaynak Analizi & Birleşik Planlayıcı</p>
           </div>
         </div>
         <div className={`headerBadge ${workerOnline ? 'badgeOnline' : 'badgeOffline'}`}>
@@ -240,7 +398,7 @@ export default function TestPanelPage() {
 
       {/* ─── Grid ─── */}
       <div className="gridLayout">
-        {/* ─── Left: Controls ─── */}
+        {/* ─── Left: Controls & Context ─── */}
         <div className="controlPanel">
           {/* Actions Card */}
           <div className="card">
@@ -260,20 +418,11 @@ export default function TestPanelPage() {
 
                 <button
                   className="btn btnPrimary"
-                  onClick={() => triggerNext(false)}
-                  disabled={loading !== null || !hasArticle || isDone}
+                  onClick={handleAnalyzeSources}
+                  disabled={loading !== null || sources.length === 0}
                 >
-                  {loading === 'trigger' ? <span className="spinner" /> : <span className="btnIcon">⏭️</span>}
-                  Sıradaki Bölümü Yaz
-                </button>
-
-                <button
-                  className="btn btnSuccess"
-                  onClick={handleTriggerAll}
-                  disabled={loading !== null || !hasArticle || isDone}
-                >
-                  {loading === 'triggerAll' ? <span className="spinner" /> : <span className="btnIcon">🚀</span>}
-                  Tümünü Otomatik Yaz
+                  {loading === 'analyze' ? <span className="spinner" /> : <span className="btnIcon">🧠</span>}
+                  Kaynakları Analiz Et & Planla
                 </button>
 
                 <button
@@ -285,82 +434,241 @@ export default function TestPanelPage() {
                   Durumu Yenile
                 </button>
               </div>
-
-              {/* Auto Mode Toggle */}
-              <button
-                className="autoModeToggle"
-                onClick={() => {
-                  setAutoMode(!autoMode);
-                  addLog(autoMode ? '⏸️ Otomatik mod devre dışı.' : '▶️ Otomatik mod aktif.', 'info');
-                }}
-                style={{ marginTop: 12 }}
-              >
-                <div className={`toggleSwitch ${autoMode ? 'toggleSwitchActive' : ''}`}>
-                  <div className={`toggleKnob ${autoMode ? 'toggleKnobActive' : ''}`} />
-                </div>
-                <div>
-                  <div className="toggleLabel">Otomatik Mod</div>
-                  <div className="toggleHint">Bölüm bitince sonrakini otomatik tetikle</div>
-                </div>
-              </button>
             </div>
           </div>
 
-          {/* Article Status Card */}
+          {/* Footprint Sources Manager */}
           <div className="card">
             <div className="cardHeader">
-              <span className="cardTitle">📊 Makale Durumu</span>
-              {isWriting && <span className="spinner" style={{ color: 'var(--accent-amber)' }} />}
+              <span className="cardTitle">🌐 Dijital Ayak İzi Kaynakları</span>
+              <button 
+                className="btn btnOutline btnMini"
+                onClick={() => setShowAddForm(!showAddForm)}
+              >
+                {showAddForm ? 'Kapat' : 'Ekle'}
+              </button>
             </div>
             <div className="cardBody">
-              {hasArticle ? (
-                <div className="statusBox">
-                  <div className="statusRow">
-                    <span className="statusLabel">Durum</span>
-                    {getStateBadge(status.article!.state)}
-                  </div>
-                  <div className="statusRow">
-                    <span className="statusLabel">Toplam Kelime</span>
-                    <span className="statusValue">{status.article!.wordCount.toLocaleString('tr-TR')}</span>
-                  </div>
-                  <div className="statusRow">
-                    <span className="statusLabel">Bölümler</span>
-                    <span className="statusValue">{status.progress!.completed} / {status.progress!.total}</span>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="progressContainer">
-                    <div className="progressHeader">
-                      <span className="progressLabel">İlerleme</span>
-                      <span className="progressPercent">{status.progress!.percentage}%</span>
-                    </div>
-                    <div className="progressTrack">
-                      <div
-                        className="progressFill"
-                        style={{ width: `${status.progress!.percentage}%` }}
-                      />
-                    </div>
-                  </div>
+              {sources.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '10px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+                  Kayıtlı dijital kaynak bulunamadı. "Seed & Sıfırla" yapabilir veya yeni kaynak ekleyebilirsiniz.
                 </div>
               ) : (
-                <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)', fontSize: 13 }}>
-                  Henüz makale yok. &quot;Seed &amp; Sıfırla&quot; butonuna tıklayın.
+                <div className="sourcesList">
+                  {sources.map((s) => (
+                    <div key={s.id} className="sourceItem">
+                      <div className="sourceInfo">
+                        <span className="sourceTitle">{s.displayName}</span>
+                        <div className="sourceMeta">
+                          <span className="sourceTypeBadge">{s.type}</span>
+                          <span className="sourceStatus">
+                            <span className={`statusDot ${
+                              s.status === 'PENDING' ? 'statusDotPending' :
+                              s.status === 'FETCHING' ? 'statusDotFetching' :
+                              s.status === 'ANALYZED' ? 'statusDotAnalyzed' : 'statusDotFailed'
+                            }`} />
+                            {s.status === 'PENDING' && 'Bekliyor'}
+                            {s.status === 'FETCHING' && 'Kazınıyor'}
+                            {s.status === 'ANALYZED' && 'Analiz Edildi'}
+                            {s.status === 'FAILED' && 'Hata!'}
+                          </span>
+                        </div>
+                        {s.errorMessage && (
+                          <span style={{ fontSize: 10, color: 'var(--accent-rose)', marginTop: 4 }}>
+                            {s.errorMessage}
+                          </span>
+                        )}
+                      </div>
+                      <div className="sourceActions">
+                        <button 
+                          className="btn btnOutline btnMini"
+                          style={{ padding: '2px 6px', color: 'var(--accent-rose)' }}
+                          onClick={() => handleDeleteSource(s.id, s.displayName)}
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              )}
+
+              {/* Add Source Form */}
+              {showAddForm && (
+                <form onSubmit={handleAddSource} className="addSourceForm">
+                  <span className="formTitle">Yeni Kaynak Ekle</span>
+                  <div className="formGrid">
+                    <select 
+                      className="formSelect"
+                      value={newSourceType}
+                      onChange={(e) => setNewSourceType(e.target.value as any)}
+                    >
+                      <option value="WEBSITE">Web Sitesi</option>
+                      <option value="YOUTUBE">YouTube Kanalı</option>
+                      <option value="INSTAGRAM">Instagram Sayfası</option>
+                      <option value="CUSTOM">Özel Metin / Rehber</option>
+                    </select>
+
+                    <input 
+                      type="text"
+                      className="formInput"
+                      placeholder="Görünüm Adı (örn: Kişisel Blog)"
+                      value={newSourceDisplayName}
+                      onChange={(e) => setNewSourceDisplayName(e.target.value)}
+                    />
+
+                    {newSourceType === 'WEBSITE' && (
+                      <input 
+                        type="text"
+                        className="formInput"
+                        placeholder="URL (örn: geocenter.com)"
+                        required
+                        value={newSourceUrl}
+                        onChange={(e) => setNewSourceUrl(e.target.value)}
+                      />
+                    )}
+
+                    {newSourceType === 'YOUTUBE' && (
+                      <input 
+                        type="text"
+                        className="formInput"
+                        placeholder="@kullaniciadi veya URL"
+                        required
+                        value={newSourceIdentifier}
+                        onChange={(e) => setNewSourceIdentifier(e.target.value)}
+                      />
+                    )}
+
+                    {newSourceType === 'INSTAGRAM' && (
+                      <>
+                        <input 
+                          type="text"
+                          className="formInput"
+                          placeholder="Instagram Kullanıcı Adı"
+                          required
+                          value={newSourceIdentifier}
+                          onChange={(e) => setNewSourceIdentifier(e.target.value)}
+                        />
+                        <textarea 
+                          className="formInput"
+                          placeholder="Instagram Bio ve son gönderileri buraya yapıştırın (Otomatik çekim limitli olduğu için)"
+                          rows={3}
+                          value={newSourceTextContent}
+                          onChange={(e) => setNewSourceTextContent(e.target.value)}
+                        />
+                      </>
+                    )}
+
+                    {newSourceType === 'CUSTOM' && (
+                      <textarea 
+                        className="formInput"
+                        placeholder="Marka hedefleri, tone of voice kuralları vb."
+                        required
+                        rows={4}
+                        value={newSourceTextContent}
+                        onChange={(e) => setNewSourceTextContent(e.target.value)}
+                      />
+                    )}
+
+                    <button 
+                      type="submit" 
+                      className="btn btnPrimary btnMini"
+                      disabled={loading === 'addSource'}
+                    >
+                      {loading === 'addSource' ? 'Ekleniyor...' : 'Kaydet'}
+                    </button>
+                  </div>
+                </form>
               )}
             </div>
           </div>
 
-          {/* Pipeline Stepper Card */}
-          {hasArticle && status.outline && (
+          {/* Unified Strategy Card */}
+          {strategy && (
+            <div className="card strategyCard">
+              <div className="cardHeader">
+                <span className="cardTitle">🧠 Birleşik İçerik Stratejisi</span>
+                <span className="stateBadge stateOutline" style={{ fontSize: 9 }}>
+                  v{strategy.version}
+                </span>
+              </div>
+              <div className="cardBody">
+                <p className="strategySummary">{strategy.summary}</p>
+                <div className="strategyGrid">
+                  <div className="strategyMetric">
+                    <span className="metricTitle">Kategoriler</span>
+                    <div className="pillContainer">
+                      {(strategy.contentPillars || []).map((p, i) => (
+                        <span key={i} className="strategyPill">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="strategyMetric">
+                    <span className="metricTitle">Hedef Kitle</span>
+                    <div className="metricValue" style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      {(strategy.geoTargets || []).join(', ')} odaklı kitle
+                    </div>
+                  </div>
+                </div>
+
+                <div className="strategyMetric">
+                  <span className="metricTitle">Anahtar Kelimeler (Clusters)</span>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {(strategy.targetKeywords as any[] || []).slice(0, 3).map((item, i) => (
+                      <div key={i} style={{ fontSize: 11 }}>
+                        <strong style={{ color: 'var(--accent-indigo)' }}>{item.cluster}:</strong>{' '}
+                        <span style={{ color: 'var(--text-secondary)' }}>{(item.keywords || []).join(', ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Content Plan / Generated Articles list */}
+          {articles.length > 0 && (
             <div className="card">
               <div className="cardHeader">
-                <span className="cardTitle">📋 Bölüm Pipeline</span>
+                <span className="cardTitle">📅 İçerik Planı (Makaleler)</span>
+              </div>
+              <div className="cardBody">
+                <div className="articleSelectionList">
+                  {articles.map((art) => (
+                    <button
+                      key={art.id}
+                      className={`articleSelectBtn ${art.id === selectedArticleId ? 'articleSelectBtnActive' : ''}`}
+                      onClick={() => selectArticle(art.id)}
+                    >
+                      <div>
+                        <div className="articleBtnTitle">{art.title}</div>
+                        <div className="articleBtnMeta">
+                          Durum: {art.state === 'PREVIEW_READY' ? 'Tamamlandı' : 'Yazım Bekliyor'} | {art.wordCount} kelime
+                        </div>
+                      </div>
+                      {art.progress && (
+                        <span className="stateBadge stateOutline" style={{ fontSize: 10 }}>
+                          {art.progress.completed} / {art.progress.total}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pipeline Stepper Card (Only for selected active article) */}
+          {hasArticle && activeArticle.articlePlan?.outline && (
+            <div className="card">
+              <div className="cardHeader">
+                <span className="cardTitle">📋 Bölüm Pipeline ({activeArticle.title.substring(0, 20)}...)</span>
               </div>
               <div className="cardBody">
                 <div className="sectionPipeline">
-                  {status.outline.map((item, index) => {
+                  {(activeArticle.articlePlan.outline as any[]).map((item, index) => {
                     const stepStatus = getStepStatus(index);
-                    const section = status.sections?.find((s) => s.order === index + 1);
+                    const section = activeArticle.sections?.find((s) => s.order === index + 1);
                     return (
                       <div key={index} className="sectionStep">
                         <div className={`stepIndicator ${stepStatus === 'complete' ? 'stepComplete' : stepStatus === 'active' ? 'stepActive' : 'stepPending'}`}>
@@ -389,8 +697,7 @@ export default function TestPanelPage() {
             <div className="cardHeader">
               <span className="cardTitle">📜 İşlem Logları</span>
               <button
-                className="btn btnOutline"
-                style={{ padding: '4px 10px', fontSize: 11 }}
+                className="btn btnOutline btnMini"
                 onClick={() => setLogs([])}
               >
                 Temizle
@@ -415,35 +722,65 @@ export default function TestPanelPage() {
           </div>
         </div>
 
-        {/* ─── Right: Content Preview ─── */}
+        {/* ─── Right: Preview & Generation controls ─── */}
         <div className="card previewPanel">
           <div className="cardHeader">
             <span className="cardTitle">👁️ İçerik Önizleme</span>
-            {hasArticle && status.article!.wordCount > 0 && (
-              <span className="stateBadge statePreviewReady" style={{ fontSize: 11 }}>
-                {status.article!.wordCount.toLocaleString('tr-TR')} kelime
-              </span>
+            {hasArticle && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  className="btn btnPrimary btnMini"
+                  style={{ padding: '6px 12px' }}
+                  onClick={() => triggerNext(false)}
+                  disabled={loading !== null || isDone}
+                >
+                  Sıradaki Bölümü Yaz
+                </button>
+                <button
+                  className="btn btnSuccess btnMini"
+                  style={{ padding: '6px 12px' }}
+                  onClick={handleTriggerAll}
+                  disabled={loading !== null || isDone}
+                >
+                  Tümünü Otomatik Yaz
+                </button>
+                
+                {/* Auto Mode Switch */}
+                <button
+                  className="btn btnOutline btnMini"
+                  style={{ padding: '6px 8px', display: 'flex', gap: 6 }}
+                  onClick={() => {
+                    setAutoMode(!autoMode);
+                    addLog(autoMode ? '⏸️ Otomatik mod kapatıldı.' : '▶️ Otomatik mod açıldı.', 'info');
+                  }}
+                >
+                  <span className={`statusDot ${autoMode ? 'statusDotAnalyzed' : 'statusDotPending'}`} />
+                  Oto
+                </button>
+              </div>
             )}
           </div>
           <div className="cardBody">
-            {hasArticle && status.article!.htmlContent ? (
+            {hasArticle && activeArticle.htmlContent ? (
               <>
                 {/* Stats Bar */}
                 <div className="statsBar">
                   <div className="stat">
-                    <span className="statLabel">Toplam Kelime</span>
-                    <span className="statValue">{status.article!.wordCount.toLocaleString('tr-TR')}</span>
+                    <span className="statLabel">Başlık</span>
+                    <span className="statValue" style={{ fontSize: 14, fontFamily: 'inherit', color: 'var(--text-primary)' }}>
+                      {activeArticle.title}
+                    </span>
                   </div>
                   <div className="statDivider" />
                   <div className="stat">
-                    <span className="statLabel">Bölüm Sayısı</span>
-                    <span className="statValue">{status.sections?.length || 0}</span>
+                    <span className="statLabel">Toplam Kelime</span>
+                    <span className="statValue">{activeArticle.wordCount.toLocaleString('tr-TR')}</span>
                   </div>
                   <div className="statDivider" />
                   <div className="stat">
                     <span className="statLabel">Durum</span>
-                    <span className="statValue" style={{ fontSize: 14, color: isDone ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
-                      {isDone ? 'Tamamlandı' : 'Devam Ediyor'}
+                    <span className="statValue" style={{ fontSize: 13, color: isDone ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
+                      {isDone ? 'Tamamlandı' : 'Yazım Devam Ediyor'}
                     </span>
                   </div>
                 </div>
@@ -451,15 +788,23 @@ export default function TestPanelPage() {
                 {/* Rendered Article HTML */}
                 <article
                   className="articleContent"
-                  dangerouslySetInnerHTML={{ __html: status.article!.htmlContent }}
+                  dangerouslySetInnerHTML={{ __html: activeArticle.htmlContent }}
                 />
               </>
+            ) : hasArticle ? (
+              <div className="previewEmpty">
+                <div className="previewEmptyIcon">📄</div>
+                <div className="previewEmptyTitle">{activeArticle.title}</div>
+                <div className="previewEmptyHint">
+                  Bu makale henüz yazılmadı. Sağ üstteki "Sıradaki Bölümü Yaz" veya "Tümünü Otomatik Yaz" butonlarına tıklayarak yazımı başlatın.
+                </div>
+              </div>
             ) : (
               <div className="previewEmpty">
                 <div className="previewEmptyIcon">📄</div>
-                <div className="previewEmptyTitle">Henüz İçerik Yok</div>
+                <div className="previewEmptyTitle">Henüz İçerik Seçilmedi</div>
                 <div className="previewEmptyHint">
-                  Sol panelden &quot;Seed &amp; Sıfırla&quot; yapıp ardından &quot;Sıradaki Bölümü Yaz&quot; veya &quot;Tümünü Otomatik Yaz&quot; butonlarına tıklayın.
+                  Sol panelden "Seed &amp; Sıfırla" butonuna tıklayıp test makalesini yükleyebilir veya marka kaynaklarını analiz edip sıfırdan planlar üretebilirsiniz.
                 </div>
               </div>
             )}

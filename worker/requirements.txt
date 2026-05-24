@@ -1,0 +1,7 @@
+celery
+redis
+requests
+google-genai
+pydantic
+python-dotenv
+beautifulsoup4

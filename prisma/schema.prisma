@@ -1,5 +1,5 @@
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -104,7 +104,7 @@ model Strategy {
   projectId      String             @unique
   project        Project            @relation(fields: [projectId], references: [id])
   
-  summary        String             @db.Text
+  summary        String
   targetKeywords Json               // Keyword clusters
   contentPillars Json               // Content silos/categories
   geoTargets     Json               // GEO target specifications
@@ -123,8 +123,8 @@ model StrategyRevision {
   strategyId   String
   strategy     Strategy @relation(fields: [strategyId], references: [id])
   
-  userFeedback String   @db.Text
-  changes      String   @db.Text
+  userFeedback String
+  changes      String
   version      Int
   createdAt    DateTime @default(now())
 }
@@ -169,10 +169,10 @@ model Article {
   
   title           String
   slug            String
-  metaDescription String         @db.VarChar(160)
-  htmlContent     String         @db.Text
-  markdownContent String         @db.Text
-  excerpt         String?        @db.Text
+  metaDescription String
+  htmlContent     String
+  markdownContent String
+  excerpt         String?
   
   focusKeyword    String
   seoScore        Float?
@@ -219,7 +219,7 @@ model ArticleVersion {
   articleId   String
   article     Article  @relation(fields: [articleId], references: [id])
   version     Int
-  content     String   @db.Text
+  content     String
   changeNote  String?
   createdAt   DateTime @default(now())
 }
@@ -233,8 +233,8 @@ model ArticleSection {
   headingLevel    Int
   order           Int      // Section sequence number for recovery
   
-  htmlContent     String   @db.Text
-  markdownContent String   @db.Text
+  htmlContent     String
+  markdownContent String
   wordCount       Int
   
   sources         Json?    // Sources / references used: [{title, url}]
@@ -253,7 +253,7 @@ model CMSConnection {
   type         String    // "wordpress", "webflow", "ghost"
   name         String
   siteUrl      String
-  credentials  Json      // Field-level encryption zorunlu — @prisma-field-encryption veya uygulama katmanında AES-256-GCM kullanın. ASLA plaintext saklamayın.
+  credentials  String    /// @encrypted
   isActive     Boolean   @default(true)
   lastTestedAt DateTime?
   

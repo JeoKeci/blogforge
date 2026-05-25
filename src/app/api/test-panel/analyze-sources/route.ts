@@ -93,6 +93,45 @@ export async function POST() {
           }
         });
 
+        // Persist audit data to SiteAudit model for WEBSITE sources
+        if (source.type === 'WEBSITE' && result?.audit) {
+          const domain = new URL(source.url || '').hostname.replace(/^www\./, '');
+          await prisma.siteAudit.upsert({
+            where: { projectId: TEST_PROJECT_ID },
+            update: {
+              domain,
+              brandInfo: {
+                industry: result.industry || '',
+                targetAudience: result.targetAudience || '',
+                toneOfVoice: result.toneOfVoice || '',
+                detectedArchetype: result.detectedArchetype || '',
+                detectedKeywords: result.detectedKeywords || [],
+              },
+              auditMatrix: result.audit,
+              actionPlan: result.actionPlan || [],
+              rawData: mergedData,
+              seoScore: result.audit?.totalScore ?? null,
+            },
+            create: {
+              projectId: TEST_PROJECT_ID,
+              domain,
+              brandInfo: {
+                industry: result.industry || '',
+                targetAudience: result.targetAudience || '',
+                toneOfVoice: result.toneOfVoice || '',
+                detectedArchetype: result.detectedArchetype || '',
+                detectedKeywords: result.detectedKeywords || [],
+              },
+              auditMatrix: result.audit,
+              actionPlan: result.actionPlan || [],
+              rawData: mergedData,
+              seoScore: result.audit?.totalScore ?? null,
+              existingPages: [],
+              existingKeywords: [],
+            }
+          });
+        }
+
         analysisSummary.push({
           id: source.id,
           name: source.displayName,

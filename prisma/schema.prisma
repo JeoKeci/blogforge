@@ -74,6 +74,8 @@ model SiteAudit {
   language           String?
   region             String?  // GEO target region (e.g. "TR")
   brandInfo          Json?    // {industry, targetAudience, toneOfVoice}
+  auditMatrix        Json?    // 100-point audit: {totalScore, breakdown: {metadata, hierarchy, depth, geoEntity}}
+  actionPlan         Json?    // AI-generated remediation steps: string[]
   
   rawData            Json?
   approvedAt         DateTime?

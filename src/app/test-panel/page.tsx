@@ -25,11 +25,33 @@ interface Strategy {
   version: number;
 }
 
+interface AuditBreakdownItem {
+  score: number;
+  good: string;
+  bad: string;
+}
+
+interface SiteAuditData {
+  id: string;
+  seoScore: number | null;
+  auditMatrix: {
+    totalScore: number;
+    breakdown: {
+      metadata: AuditBreakdownItem;
+      hierarchy: AuditBreakdownItem;
+      depth: AuditBreakdownItem;
+      geoEntity: AuditBreakdownItem;
+    };
+  } | null;
+  actionPlan: string[] | null;
+}
+
 interface Project {
   id: string;
   name: string;
   state: string;
   siteUrl: string;
+  siteAudit?: SiteAuditData | null;
 }
 
 interface ArticleInfo {
@@ -582,6 +604,93 @@ export default function TestPanelPage() {
               )}
             </div>
           </div>
+
+          {/* ─── Audit Report Card ─── */}
+          {project?.siteAudit?.auditMatrix ? (() => {
+            const audit = project.siteAudit!;
+            const matrix = audit.auditMatrix!;
+            const score = matrix.totalScore;
+            const scoreClass = score >= 70 ? 'scoreHigh' : score >= 40 ? 'scoreMedium' : 'scoreLow';
+
+            const columns: { key: keyof typeof matrix.breakdown; label: string; maxScore: number; icon: string }[] = [
+              { key: 'metadata', label: 'Metadata & SEO Sağlığı', maxScore: 20, icon: '🏷️' },
+              { key: 'hierarchy', label: 'Semantik Hiyerarşi', maxScore: 25, icon: '🏗️' },
+              { key: 'depth', label: 'İçerik Derinliği & Bilgi Kazancı', maxScore: 30, icon: '📚' },
+              { key: 'geoEntity', label: 'Varlık & GEO Hazırlığı', maxScore: 25, icon: '🌍' },
+            ];
+
+            return (
+              <div className="card auditCard">
+                <div className="cardHeader">
+                  <span className="cardTitle">📊 Web Sitesi Sağlık Raporu</span>
+                  <span className={`auditScoreBadge ${scoreClass}`}>
+                    {score}/100
+                  </span>
+                </div>
+                <div className="cardBody">
+                  {/* Score bar visualization */}
+                  <div className="auditScoreBar">
+                    <div className="auditScoreTrack">
+                      <div
+                        className={`auditScoreFill ${scoreClass}`}
+                        style={{ width: `${score}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 4-column breakdown */}
+                  {columns.map((col) => {
+                    const item = matrix.breakdown[col.key];
+                    return (
+                      <div key={col.key} className="auditSectionRow">
+                        <div className="auditSectionHeader">
+                          <span>{col.icon} {col.label}</span>
+                          <span className="auditSectionPoints">{item.score}/{col.maxScore}</span>
+                        </div>
+                        {item.good && (
+                          <div className="auditBullet">
+                            <span className="bulletGood">🟢</span>
+                            <span className="bulletGood">{item.good}</span>
+                          </div>
+                        )}
+                        {item.bad && (
+                          <div className="auditBullet">
+                            <span className="bulletBad">🔴</span>
+                            <span className="bulletBad">{item.bad}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Action Plan */}
+                  {audit.actionPlan && audit.actionPlan.length > 0 && (
+                    <div className="actionPlanSection">
+                      <div className="actionPlanTitle">📋 Önerilen Acil Aksiyon Planı</div>
+                      {(audit.actionPlan as string[]).map((item, i) => (
+                        <div key={i} className="actionItem">
+                          <span className="actionCheckbox">☐</span>
+                          <span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })() : project && (
+            <div className="card">
+              <div className="cardHeader">
+                <span className="cardTitle">📊 Web Sitesi Sağlık Raporu</span>
+              </div>
+              <div className="cardBody">
+                <div className="auditPending">
+                  <span className="auditPendingIcon">⏳</span>
+                  <span>Analiz bekleniyor. Kaynakları analiz ettikten sonra sağlık raporu burada görünecektir.</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Unified Strategy Card */}
           {strategy && (

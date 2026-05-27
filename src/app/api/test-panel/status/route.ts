@@ -9,9 +9,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const selectedArticleId = searchParams.get('selectedArticleId');
 
-    // 1. Fetch project with state
+    // 1. Fetch project with state and siteAudit
     const project = await prisma.project.findUnique({
-      where: { id: TEST_PROJECT_ID }
+      where: { id: TEST_PROJECT_ID },
+      include: {
+        siteAudit: true,
+      }
     });
 
     if (!project) {
@@ -60,7 +63,13 @@ export async function GET(request: Request) {
         id: project.id,
         name: project.name,
         state: project.state,
-        siteUrl: project.siteUrl
+        siteUrl: project.siteUrl,
+        siteAudit: project.siteAudit ? {
+          id: project.siteAudit.id,
+          seoScore: project.siteAudit.seoScore,
+          auditMatrix: project.siteAudit.auditMatrix,
+          actionPlan: project.siteAudit.actionPlan,
+        } : null,
       },
       sources: sources.map(s => ({
         id: s.id,

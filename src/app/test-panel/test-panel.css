@@ -987,3 +987,174 @@
   color: var(--text-muted);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   Audit Report Card Styles — 100-Point Health Matrix
+   ═══════════════════════════════════════════════════════════════ */
+
+.auditCard {
+  background: linear-gradient(145deg, rgba(99, 102, 241, 0.06), rgba(34, 211, 238, 0.03));
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+/* Score Badge */
+.auditScoreBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.02em;
+}
+
+.scoreHigh {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.scoreMedium {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.scoreLow {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--accent-rose);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+/* Score Bar */
+.auditScoreBar {
+  margin-bottom: 16px;
+}
+
+.auditScoreTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.auditScoreFill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.auditScoreFill.scoreHigh {
+  background: linear-gradient(90deg, #059669, #10b981, #34d399);
+  border: none;
+}
+
+.auditScoreFill.scoreMedium {
+  background: linear-gradient(90deg, #d97706, #f59e0b, #fbbf24);
+  border: none;
+}
+
+.auditScoreFill.scoreLow {
+  background: linear-gradient(90deg, #e11d48, #f43f5e, #fb7185);
+  border: none;
+}
+
+/* Section Rows */
+.auditSectionRow {
+  margin-top: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.auditSectionRow:last-of-type {
+  border-bottom: none;
+}
+
+.auditSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.auditSectionPoints {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent-indigo);
+  font-weight: 700;
+}
+
+/* Good/Bad Bullets */
+.auditBullet {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  margin-top: 5px;
+  line-height: 1.5;
+  align-items: flex-start;
+}
+
+.bulletGood {
+  color: #10b981;
+}
+
+.bulletBad {
+  color: #f43f5e;
+}
+
+/* Action Plan Section */
+.actionPlanSection {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: rgba(99, 102, 241, 0.04);
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(99, 102, 241, 0.2);
+}
+
+.actionPlanTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.actionItem {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  line-height: 1.5;
+  align-items: flex-start;
+}
+
+.actionCheckbox {
+  color: var(--accent-indigo);
+  font-size: 13px;
+  flex-shrink: 0;
+  margin-top: -1px;
+}
+
+/* Pending State */
+.auditPending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bg-glass);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.auditPendingIcon {
+  font-size: 20px;
+  flex-shrink: 0;
+}

@@ -24,6 +24,10 @@ export async function POST(request: Request) {
       await prisma.articlePlan.deleteMany({ where: { id: articlePlanId } });
       await prisma.contentPlan.deleteMany({ where: { id: contentPlanId } });
       await prisma.contentSource.deleteMany({ where: { projectId } });
+      await prisma.strategyRevision.deleteMany({ where: { strategy: { projectId } } });
+      await prisma.strategy.deleteMany({ where: { projectId } });
+      await prisma.siteAudit.deleteMany({ where: { projectId } });
+      await prisma.competitor.deleteMany({ where: { projectId } });
       await prisma.project.deleteMany({ where: { id: projectId } });
       await prisma.user.deleteMany({ where: { id: userId } });
 

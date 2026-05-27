@@ -71,7 +71,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: 'Kaynak ID\'si gerekli.' }, { status: 400 });
     }
 
-    await prisma.contentSource.delete({
+    await prisma.contentSource.deleteMany({
       where: { id }
     });
 

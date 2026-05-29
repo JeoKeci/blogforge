@@ -143,6 +143,7 @@ model ContentPlan {
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   strategyId    String?
   status        String   @default("DRAFT")
+  suggestedGaps Json?    // Celery'den gelecek olan [{ title, focusKeyword, type: 'new_article'/'lsi_suggestion' }] yapısı
   
   articles      ArticlePlan[]
   approvedAt    DateTime?

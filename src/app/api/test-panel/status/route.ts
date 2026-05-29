@@ -37,8 +37,12 @@ export async function GET(request: Request) {
       orderBy: { createdAt: 'desc' }
     });
 
-    // 3. Fetch strategy
+    // 3. Fetch strategy and content plan
     const strategy = await prisma.strategy.findUnique({
+      where: { projectId: TEST_PROJECT_ID }
+    });
+
+    const contentPlan = await prisma.contentPlan.findUnique({
       where: { projectId: TEST_PROJECT_ID }
     });
 
@@ -96,6 +100,11 @@ export async function GET(request: Request) {
           rules: project.knowledgeBase.rules,
           pillars: project.knowledgeBase.pillars,
           outboundLinks: project.knowledgeBase.outboundLinks,
+        } : null,
+        contentPlan: contentPlan ? {
+          id: contentPlan.id,
+          status: contentPlan.status,
+          suggestedGaps: contentPlan.suggestedGaps
         } : null
       },
       sources: sources.map(s => ({

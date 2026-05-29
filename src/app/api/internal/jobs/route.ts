@@ -316,6 +316,51 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'Article production and quality gate evaluation complete.' });
     }
 
+    if (action === 'competitor_analysis_complete') {
+      const { projectId, competitors } = body;
+      
+      const tx = await prisma.$transaction(async (tx: any) => {
+        for (const comp of competitors) {
+          await tx.competitor.create({
+            data: {
+              projectId,
+              siteUrl: comp.siteUrl,
+              domain: comp.domain,
+              source: comp.source,
+              domainRating: comp.domainRating,
+              organicTraffic: comp.organicTraffic,
+              topKeywords: comp.topKeywords,
+              contentGaps: comp.contentGaps
+            }
+          });
+        }
+      });
+      return NextResponse.json({ success: true, message: 'Competitors saved.' });
+    }
+
+    if (action === 'gap_analysis_complete') {
+      const { projectId, gaps } = body;
+      
+      const contentPlan = await prisma.contentPlan.findFirst({ where: { projectId } });
+      if (contentPlan) {
+        await prisma.contentPlan.update({
+          where: { id: contentPlan.id },
+          data: { suggestedGaps: gaps }
+        });
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'link_maintenance_complete') {
+      const { articleId, updatedHtml } = body;
+      
+      await prisma.article.update({
+        where: { id: articleId },
+        data: { htmlContent: updatedHtml }
+      });
+      return NextResponse.json({ success: true });
+    }
+
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

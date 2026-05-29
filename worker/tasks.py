@@ -375,3 +375,170 @@ def publish_to_wordpress(article_id: str, wp_payload: dict, connection_config: d
             return {"status": "success", "articleId": article_id, "wp_response": res.json()}
         else:
             raise Exception(f"WordPress API hatası ({res.status_code}): {res.text}")
+
+# --- Phase 1.9 ---
+
+@app.task(name="tasks.analyze_competitors")
+def analyze_competitors(project_id):
+    print(f"[{project_id}] Rakip otomasyonu başlatılıyor (SERP mock)...")
+    import time
+    time.sleep(2) # Sahte ağ beklemesi
+    
+    # Gerçek senaryoda bu adım Google Custom Search API veya DataForSEO ile doldurulur.
+    is_mock = os.getenv("COMPETITOR_MOCK_MODE", "true").lower() == "true"
+    
+    competitors = [
+        {
+            "siteUrl": "https://www.rakip-b2b-timber.com",
+            "domain": "rakip-b2b-timber.com",
+            "source": "serp_automation",
+            "domainRating": 65.4,
+            "organicTraffic": 12500,
+            "topKeywords": [{"keyword": "merbau durability class", "position": 2, "volume": 1200}, {"keyword": "hardwood supplier europe", "position": 4, "volume": 3500}],
+            "contentGaps": ["sustainable sourcing merbau", "fsc certified hardwood imports", "b2b timber logistics"]
+        },
+        {
+            "siteUrl": "https://www.wood-specialists.eu",
+            "domain": "wood-specialists.eu",
+            "source": "serp_automation",
+            "domainRating": 58.1,
+            "organicTraffic": 8200,
+            "topKeywords": [{"keyword": "buy bilinga wood", "position": 1, "volume": 800}, {"keyword": "azobe sheet piling", "position": 3, "volume": 1500}],
+            "contentGaps": ["azobe vs bilinga comparison", "waterworks timber specifications"]
+        },
+        {
+            "siteUrl": "https://www.global-lumber.net",
+            "domain": "global-lumber.net",
+            "source": "serp_automation",
+            "domainRating": 72.0,
+            "organicTraffic": 45000,
+            "topKeywords": [{"keyword": "wholesale tropical timber", "position": 5, "volume": 5000}, {"keyword": "meranti decking", "position": 2, "volume": 2200}],
+            "contentGaps": ["meranti fire resistance", "tropical timber eu regulations"]
+        }
+    ]
+    
+    nextjs_api_url = os.getenv("NEXTJS_INTERNAL_URL", "http://localhost:3000/api/internal/jobs")
+    auth_token = os.getenv("INTERNAL_SECRET_TOKEN")
+    
+    headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
+    payload = {
+        "action": "competitor_analysis_complete",
+        "projectId": project_id,
+        "competitors": competitors
+    }
+    
+    res = requests.post(nextjs_api_url, json=payload, headers=headers)
+    if res.status_code == 200:
+        print(f"[{project_id}] Rakip otomasyonu tamamlandı.")
+        return {"status": "success", "projectId": project_id}
+    else:
+        raise Exception(f"Rakip analizi API hatası: {res.text}")
+
+@app.task(name="tasks.run_gap_analysis")
+def run_gap_analysis(project_id, competitor_keywords_str, existing_keywords_str):
+    print(f"[{project_id}] Gap Analizi Başlatılıyor...")
+    
+    prompt = f"""
+    Sen kıdemli bir B2B SEO Uzmanısın. Amacımız içerik boşluklarını (content gaps) bulmak.
+    Aşağıda rakiplerin sıralama aldığı "top keywords" havuzu ve bizim projemizde şu an "ArticlePlan" içerisinde planlanmış "focusKeywords" listesi var.
+    
+    RAKİPLERİN KELİMELERİ:
+    {competitor_keywords_str}
+    
+    BİZİM PLANLI KELİMELERİMİZ:
+    {existing_keywords_str}
+    
+    Görevi: Bize ait listelerde OLMAYAN ama sektörel olarak çok değerli 4-5 adet yeni "fırsat" kelimesini bul.
+    Çıktı formatı kesinlikle aşağıdaki şemaya uymalıdır (saf JSON, kod bloğu olmadan):
+    [
+      {{ "title": "Önerilen Makale Başlığı", "focusKeyword": "Odak Kelime", "type": "new_article" }},
+      {{ "title": "Bunu da eklersen iyi olur", "focusKeyword": "Yan Kelime", "type": "lsi_suggestion" }}
+    ]
+    """
+    
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config={"response_mime_type": "application/json"}
+    )
+    
+    import json
+    try:
+        gaps = json.loads(response.text)
+    except Exception as e:
+        gaps = [{"title": "Fallback Plan", "focusKeyword": "b2b tropical timber imports", "type": "new_article"}]
+        
+    nextjs_api_url = os.getenv("NEXTJS_INTERNAL_URL", "http://localhost:3000/api/internal/jobs")
+    auth_token = os.getenv("INTERNAL_SECRET_TOKEN")
+    
+    headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
+    payload = {
+        "action": "gap_analysis_complete",
+        "projectId": project_id,
+        "gaps": gaps
+    }
+    
+    res = requests.post(nextjs_api_url, json=payload, headers=headers)
+    if res.status_code == 200:
+        print(f"[{project_id}] Gap analizi tamamlandı.")
+        return {"status": "success", "gaps_found": len(gaps)}
+    else:
+        raise Exception(f"Gap analizi API hatası: {res.text}")
+
+@app.task(name="tasks.retro_link_maintenance")
+def retro_link_maintenance(project_id, article_id, new_article_slug, focus_keyword, current_html):
+    print(f"[{article_id}] Retro link bakımı yapılıyor: '{focus_keyword}' kelimesi aranıyor...")
+    
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(current_html, 'html.parser')
+    
+    modified = False
+    # Kelime büyük/küçük harf duyarsız aramak için
+    import re
+    pattern = re.compile(f"\\b({re.escape(focus_keyword)})\\b", re.IGNORECASE)
+    
+    for text_node in soup.find_all(string=True):
+        # A etiketinin içinde mi diye kontrol et
+        if text_node.parent.name == 'a':
+            continue
+        # Headings (h1, h2, vb.) içinde değiştirmek SEO için risklidir, sadece p, li, span, div içindekileri değiştir
+        if text_node.parent.name not in ['p', 'li', 'span', 'div', 'td']:
+            continue
+            
+        text = str(text_node)
+        if pattern.search(text):
+            # Sadece İLK eşleşmeyi bulup değiştirelim
+            match = pattern.search(text)
+            start, end = match.span()
+            matched_word = text[start:end]
+            
+            new_html = text[:start] + f'<a href="/blog/{new_article_slug}">{matched_word}</a>' + text[end:]
+            
+            # HTML elementini yeni yapıyla değiştir
+            new_soup = BeautifulSoup(new_html, 'html.parser')
+            text_node.replace_with(new_soup)
+            modified = True
+            break # Sadece bir link yeterli
+            
+    if not modified:
+        print(f"[{article_id}] Kelime bulunamadı veya zaten linkli.")
+        return {"status": "no_change"}
+        
+    updated_html = str(soup)
+    
+    nextjs_api_url = os.getenv("NEXTJS_INTERNAL_URL", "http://localhost:3000/api/internal/jobs")
+    auth_token = os.getenv("INTERNAL_SECRET_TOKEN")
+    
+    headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
+    payload = {
+        "action": "link_maintenance_complete",
+        "articleId": article_id,
+        "updatedHtml": updated_html
+    }
+    
+    res = requests.post(nextjs_api_url, json=payload, headers=headers)
+    if res.status_code == 200:
+        print(f"[{article_id}] Retro link eklendi ve DB güncellendi.")
+        return {"status": "success", "modified": True}
+    else:
+        raise Exception(f"Link retrofitting API hatası: {res.text}")

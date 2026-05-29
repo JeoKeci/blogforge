@@ -440,6 +440,44 @@ export default function TestPanelPage() {
     setLoading(null);
   }
 
+  async function handleGapAnalysis() {
+    setLoading('gapAnalysis');
+    addLog('🕵️ Rakip ve Gap Analizi Celery\'ye gönderiliyor...', 'info');
+    try {
+      const res = await fetch('/api/test-panel/competitors/analyze', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        addLog('✅ Rakip & Gap Analizi başlatıldı. Arka planda Celery işleyecek.', 'success');
+        setPolling(true);
+      } else {
+        addLog(`❌ Gap Analizi Hatası: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Gap Analizi Hatası: ${e.message}`, 'error');
+    }
+    setLoading(null);
+  }
+
+  async function handleApproveGap(gap: any) {
+    addLog(`➕ "${gap.title}" makale planlarına ekleniyor...`, 'info');
+    try {
+      const res = await fetch('/api/test-panel/articles/approve-gap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gap }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog(`✅ "${gap.title}" başarıyla plana eklendi.`, 'success');
+        await fetchStatus();
+      } else {
+        addLog(`❌ Ekleme Hatası: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Ekleme Hatası: ${e.message}`, 'error');
+    }
+  }
+
   async function triggerNext(isAutoCall = false) {
     if (!activeArticle) {
       addLog('❌ Aktif seçili makale yok.', 'error');
@@ -616,9 +654,53 @@ export default function TestPanelPage() {
                   {loading === 'generateStrategy' ? <span className="spinner" /> : <span className="btnIcon">🎯</span>}
                   {project?.knowledgeBase?.status === 'APPROVED' ? 'Strateji & İçerik Planı Üret (Faz 1.7)' : 'Strateji Üret (Anayasa Onayı Bekleniyor)'}
                 </button>
+                <button
+                  className="btn btnOutline"
+                  onClick={handleGapAnalysis}
+                  disabled={loading !== null || !project?.contentPlan}
+                  style={{ marginTop: '8px', width: '100%' }}
+                >
+                  {loading === 'gapAnalysis' ? <span className="spinner" /> : <span className="btnIcon">🕵️</span>}
+                  Rakipleri Tara ve Gap Analizi Çalıştır
+                </button>
               </div>
             </div>
           </div>
+
+          {/* Strategy & Content Plan Tracker */}
+          <div className="card">
+            <div className="cardHeader">
+              <span className="cardTitle">🗺️ Strateji & Üretim Takvimi</span>
+              {strategy && <span className="badge badgeSuccess">Plan Devrede</span>}
+            </div>
+
+            {project?.contentPlan?.suggestedGaps && project.contentPlan.suggestedGaps.length > 0 && (
+              <div style={{ padding: '12px 16px', background: 'rgba(52, 211, 153, 0.1)', borderBottom: '1px solid #334155' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#34d399', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🎯</span> Keşfedilen Kelime Fırsatları (Gap Analizi)
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {project.contentPlan.suggestedGaps.map((gap: any, index: number) => (
+                    <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(15, 23, 42, 0.5)', padding: '8px 12px', borderRadius: '4px' }}>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '500', color: '#f8fafc' }}>{gap.title}</div>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                          Odak: <strong style={{ color: '#38bdf8' }}>{gap.focusKeyword}</strong> • Tip: {gap.type === 'new_article' ? 'Yeni Makale' : 'LSI/Alt Başlık'}
+                        </div>
+                      </div>
+                      <button 
+                        className="btn btnPrimary btnMini" 
+                        onClick={() => handleApproveGap(gap)}
+                      >
+                        + Plana Ekle
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="cardBody" style={{ padding: 0 }}>
 
           {/* Footprint Sources Manager */}
           <div className="card">

@@ -156,3 +156,74 @@ def derive_constitution(project_id, site_audit_id, raw_audit_data_str):
         return {"status": "success", "projectId": project_id}
     else:
         raise Exception(f"Next.js internal API hatası: {res.text}")
+
+class ArticlePlanItem(BaseModel):
+    slug: str = Field(description="Makale URL slug'ı (örn: merbau-hout)")
+    title: str = Field(description="Makale başlığı")
+    contentType: str = Field(description="how-to, guide, comparison, local")
+    focusKeyword: str = Field(description="Odak anahtar kelime")
+    secondaryKeywords: List[str] = Field(description="Destekleyici anahtar kelimeler listesi")
+    outline: List[str] = Field(description="H2 ve H3 başlık iskeleti listesi")
+    order: int = Field(description="Üretim ve yayın sıralama numarası")
+
+class LinkItem(BaseModel):
+    source_slug: str = Field(description="Kaynak makalenin slug değeri")
+    target_slug: str = Field(description="Hedef makalenin slug değeri")
+    anchor_text: str = Field(description="Kullanılacak tam anchor text terimi")
+
+class StrategyResponse(BaseModel):
+    pillar_focus: str = Field(description="Stratejinin odaklandığı ana endüstriyel pillar")
+    keyword_clusters: List[str] = Field(description="Hedeflenen anahtar kelime kümeleri")
+    geo_targets: List[str] = Field(description="Varsa hedeflenen bölgesel coğrafi lokasyonlar")
+    articles: List[ArticlePlanItem]
+    internal_links: List[LinkItem]
+
+@app.task(name="tasks.generate_strategy")
+def generate_strategy(project_id, knowledge_base_str, site_audit_str):
+    """
+    KnowledgeBase ve SiteAudit verilerini potada eritip asenkron olarak içerik stratejisi ve iç link grafiği üreten görev.
+    """
+    print(f"Strateji ve İçerik Planı üretimi başladı. Proje ID: {project_id}")
+    
+    prompt = f"""
+    Aşağıda bir sitenin analiz (SiteAudit) verileri ve marka için oluşturulmuş Kural Anayasası (KnowledgeBase) bulunmaktadır.
+    Görevin: Bu bilgileri entegre eden tutarlı bir SEO İçerik Stratejisi, makale planları ve internal link grafiği üretmek.
+    
+    KURAL ANAYASASI:
+    {knowledge_base_str}
+    
+    SİTE ANALİZ VERİLERİ (Özet):
+    {site_audit_str}
+    
+    Lütfen markanın kurumsal yapısına uygun olarak yapılandırılmış JSON çıktısı dön. Ürettiğin her makalenin benzersiz bir 'slug'ı olmalı ve internal link'ler ('internal_links' listesinde) bu slug'ları kullanmalıdır.
+    """
+    
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config={
+            "response_mime_type": "application/json",
+            "response_schema": StrategyResponse
+        }
+    )
+    
+    nextjs_api_url = os.getenv("NEXTJS_INTERNAL_URL", "http://localhost:3000/api/internal/jobs")
+    auth_token = os.getenv("INTERNAL_SECRET_TOKEN")
+    
+    payload = {
+        "action": "strategy_complete",
+        "projectId": project_id,
+        "strategy_data": response.text
+    }
+    
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Content-Type": "application/json"
+    }
+    
+    res = requests.post(nextjs_api_url, json=payload, headers=headers)
+    if res.status_code == 200:
+        print(f"Strateji başarıyla üretildi ve API'ye iletildi.")
+        return {"status": "success", "projectId": project_id}
+    else:
+        raise Exception(f"Webhook hatası: {res.text}")

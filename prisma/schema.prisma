@@ -105,22 +105,25 @@ model Competitor {
 }
 
 model Strategy {
-  id             String             @id @default(cuid())
-  projectId      String             @unique
-  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id              String             @id @default(cuid())
+  projectId       String             @unique
+  project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   
-  summary        String
-  targetKeywords Json               // Keyword clusters
-  contentPillars Json               // Content silos/categories
-  geoTargets     Json               // GEO target specifications
-  contentMix     Json               // {informational: 40, transactional: 30, local: 30}
-  monthlyTarget  Int
+  summary         String?
+  targetKeywords  Json?              // Keyword clusters
+  contentPillars  Json?              // Content silos/categories
+  geoTargets      Json?              // GEO target specifications
+  contentMix      Json?              // {informational: 40, transactional: 30, local: 30}
+  monthlyTarget   Int?
   
-  revisions      StrategyRevision[]
-  version        Int                @default(1)
-  approvedAt     DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  pillarFocus     String?
+  keywordClusters Json?
+  
+  revisions       StrategyRevision[]
+  version         Int                @default(1)
+  approvedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 }
 
 model StrategyRevision {
@@ -138,6 +141,8 @@ model ContentPlan {
   id            String   @id @default(cuid())
   projectId     String   @unique
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  strategyId    String?
+  status        String   @default("DRAFT")
   
   articles      ArticlePlan[]
   approvedAt    DateTime?
@@ -146,23 +151,40 @@ model ContentPlan {
 
 model ArticlePlan {
   id               String   @id @default(cuid())
+  projectId        String?
   contentPlanId    String
   contentPlan      ContentPlan @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
   
   order            Int
+  slug             String?
   title            String
-  primaryKeyword   String
-  secondaryKeywords Json
-  searchIntent     String
+  primaryKeyword   String?
+  focusKeyword     String?
+  secondaryKeywords Json?
+  searchIntent     String?
   contentType      String    // "how-to", "listicle", "guide", "comparison", "local"
-  targetWordCount  Int
-  priority         String    // "quick-win", "medium-term", "long-term"
+  targetWordCount  Int?
+  priority         String?    // "quick-win", "medium-term", "long-term"
   geoTarget        String?
   outline          Json?     // Dynamic outline array
+  
+  outboundLinks    InternalLink[] @relation("SourceLinks")
+  inboundLinks     InternalLink[] @relation("TargetLinks")
   
   article          Article?
   status           String    @default("planned") // planned, in_progress, produced, published
   createdAt        DateTime  @default(now())
+}
+
+model InternalLink {
+  id           String      @id @default(cuid())
+  sourcePlanId String
+  sourcePlan   ArticlePlan @relation("SourceLinks", fields: [sourcePlanId], references: [id], onDelete: Cascade)
+  targetPlanId String
+  targetPlan   ArticlePlan @relation("TargetLinks", fields: [targetPlanId], references: [id], onDelete: Cascade)
+  anchorText   String
+  status       String      @default("planned") // planned, placed, verified
+  createdAt    DateTime    @default(now())
 }
 
 model Article {

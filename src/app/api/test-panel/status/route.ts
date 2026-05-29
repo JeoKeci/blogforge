@@ -46,7 +46,15 @@ export async function GET(request: Request) {
     const articles = await prisma.article.findMany({
       where: { projectId: TEST_PROJECT_ID },
       include: {
-        articlePlan: true,
+        articlePlan: {
+          include: {
+            outboundLinks: {
+              include: {
+                targetPlan: true
+              }
+            }
+          }
+        },
         sections: { orderBy: { order: 'asc' } }
       },
       orderBy: { createdAt: 'asc' }
@@ -114,6 +122,10 @@ export async function GET(request: Request) {
         title: a.title,
         state: a.state,
         wordCount: a.wordCount,
+        outboundLinks: a.articlePlan?.outboundLinks.map((ol: any) => ({
+          targetSlug: ol.targetPlan?.slug || ol.targetPlanId,
+          anchorText: ol.anchorText
+        })) || [],
         progress: a.articlePlan?.outline ? {
           completed: a.sections.length,
           total: (a.articlePlan.outline as any[]).length

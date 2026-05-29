@@ -959,24 +959,35 @@ export default function TestPanelPage() {
               </div>
               <div className="cardBody">
                 <div className="articleSelectionList">
-                  {articles.map((art) => (
-                    <button
-                      key={art.id}
-                      className={`articleSelectBtn ${art.id === selectedArticleId ? 'articleSelectBtnActive' : ''}`}
-                      onClick={() => selectArticle(art.id)}
-                    >
-                      <div>
-                        <div className="articleBtnTitle">{art.title}</div>
-                        <div className="articleBtnMeta">
-                          Durum: {art.state === 'PREVIEW_READY' ? 'Tamamlandı' : 'Yazım Bekliyor'} | {art.wordCount} kelime
+                  {articles.map((art: any) => (
+                    <div key={art.id} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <button
+                        className={`articleSelectBtn ${art.id === selectedArticleId ? 'articleSelectBtnActive' : ''}`}
+                        onClick={() => selectArticle(art.id)}
+                      >
+                        <div>
+                          <div className="articleBtnTitle">{art.title}</div>
+                          <div className="articleBtnMeta">
+                            Durum: {art.state === 'PREVIEW_READY' ? 'Tamamlandı' : 'Yazım Bekliyor'} | {art.wordCount} kelime
+                          </div>
                         </div>
-                      </div>
-                      {art.progress && (
-                        <span className="stateBadge stateOutline" style={{ fontSize: 10 }}>
-                          {art.progress.completed} / {art.progress.total}
-                        </span>
+                        {art.progress && (
+                          <span className="stateBadge stateOutline" style={{ fontSize: 10 }}>
+                            {art.progress.completed} / {art.progress.total}
+                          </span>
+                        )}
+                      </button>
+
+                      {art.outboundLinks && art.outboundLinks.length > 0 && (
+                        <div style={{ paddingLeft: '14px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {art.outboundLinks.map((link: any, idx: number) => (
+                            <div key={idx} style={{ marginTop: '2px' }}>
+                              🔗 Link verilecek makale: <span style={{color: 'var(--accent-indigo)', fontWeight: '600'}}>{link.targetSlug}</span> (Anchor: &apos;{link.anchorText}&apos;)
+                            </div>
+                          ))}
+                        </div>
                       )}
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>

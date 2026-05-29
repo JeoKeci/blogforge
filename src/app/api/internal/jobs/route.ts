@@ -143,6 +143,81 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'KnowledgeBase successfully generated in DRAFT state.' });
     }
     
+    if (action === 'strategy_complete') {
+      const { projectId, strategy_data: strategyStr } = body;
+      const data = JSON.parse(strategyStr);
+
+      await prisma.$transaction(async (tx) => {
+        // Idempotency: Varsa eski Strategy, ContentPlan ve ArticlePlan kayıtlarını temizle
+        const oldStrategy = await tx.strategy.findUnique({ where: { projectId } });
+        if (oldStrategy) {
+          await tx.contentPlan.deleteMany({ where: { strategyId: oldStrategy.id } });
+          await tx.strategy.delete({ where: { projectId } });
+        }
+
+        // 1. Ana Strategy kaydını oluştur
+        const strategy = await tx.strategy.create({
+          data: {
+            projectId,
+            pillarFocus: data.pillar_focus,
+            keywordClusters: data.keyword_clusters,
+            geoTargets: data.geo_targets
+          }
+        });
+
+        // 2. ContentPlan oluştur
+        const contentPlan = await tx.contentPlan.create({
+          data: {
+            projectId,
+            strategyId: strategy.id,
+            status: 'DRAFT'
+          }
+        });
+
+        // 3. Makale Planlarını (ArticlePlan) tek tek ekle ve slug-id eşleşme haritası tut
+        const slugToIdMap: Record<string, string> = {};
+        for (const art of data.articles) {
+          const plan = await tx.articlePlan.create({
+            data: {
+              projectId,
+              contentPlanId: contentPlan.id,
+              slug: art.slug,
+              title: art.title,
+              contentType: art.contentType,
+              focusKeyword: art.focusKeyword,
+              secondaryKeywords: art.secondaryKeywords,
+              outline: art.outline,
+              order: art.order,
+              status: 'PLANNED'
+            }
+          });
+          slugToIdMap[art.slug] = plan.id;
+        }
+
+        // 4. İç Link Haritasını (InternalLink) eşleşme haritasına göre veritabanına bas
+        if (data.internal_links && data.internal_links.length > 0) {
+          const linksToCreate = data.internal_links
+            .filter((l: any) => slugToIdMap[l.source_slug] && slugToIdMap[l.target_slug])
+            .map((l: any) => ({
+              sourcePlanId: slugToIdMap[l.source_slug],
+              targetPlanId: slugToIdMap[l.target_slug],
+              anchorText: l.anchor_text,
+              status: 'planned'
+            }));
+
+          await tx.internalLink.createMany({ data: linksToCreate });
+        }
+
+        // 5. Durumu 'STRATEGY_REVIEW' (İnsan Onayı Bekliyor) aşamasına çek (Katı Kurallara tam uyum!)
+        await tx.project.update({
+          where: { id: projectId },
+          data: { state: 'STRATEGY_REVIEW' }
+        });
+      });
+
+      return NextResponse.json({ success: true, message: 'Strategy and internal link graph generated for human review.' });
+    }
+
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

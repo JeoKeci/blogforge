@@ -7,7 +7,7 @@ import {
   analyzeCustom 
 } from '@/lib/pipeline/source-analyzers';
 import { generateUnifiedStrategy } from '@/lib/pipeline/strategy-planner';
-
+import { sendCeleryTask } from '@/lib/celery';
 const TEST_PROJECT_ID = 'test-project-id';
 
 // POST /api/test-panel/analyze-sources — Run analysis on all pending sources & generate unified plan
@@ -177,16 +177,29 @@ export async function POST() {
       }, { status: 422 });
     }
 
-    // 5. Invoke joint planner to generate strategy & content plan
-    const strategyResult = await generateUnifiedStrategy(TEST_PROJECT_ID);
+    // 5. Retrieve the SiteAudit to pass raw data to Celery
+    const siteAudit = await prisma.siteAudit.findUnique({
+      where: { projectId: TEST_PROJECT_ID }
+    });
+
+    if (!siteAudit) {
+      throw new Error('SiteAudit kaydı bulunamadı. Kural Anayasası türetilemez.');
+    }
+
+    const rawAuditDataStr = JSON.stringify(siteAudit.rawData || {});
+
+    // 6. Trigger Celery Task to derive the Constitution
+    const taskId = await sendCeleryTask('tasks.derive_constitution', [
+      TEST_PROJECT_ID,
+      siteAudit.id,
+      rawAuditDataStr
+    ]);
 
     return NextResponse.json({
       success: true,
-      message: 'Kaynaklar analiz edildi ve birleşik plan oluşturuldu.',
-      analysisSummary,
-      strategy: strategyResult.strategy,
-      contentPlan: strategyResult.contentPlan,
-      articles: strategyResult.articles
+      message: 'Kaynaklar analiz edildi ve Kural Anayasası (Constitution) türetimi Celery\'ye gönderildi.',
+      taskId,
+      analysisSummary
     });
 
   } catch (error: any) {

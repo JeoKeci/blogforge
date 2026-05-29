@@ -55,7 +55,8 @@ export async function GET(request: Request) {
             }
           }
         },
-        sections: { orderBy: { order: 'asc' } }
+        sections: { orderBy: { order: 'asc' } },
+        versions: { orderBy: { versionNumber: 'desc' } }
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -142,7 +143,12 @@ export async function GET(request: Request) {
         faq: activeArticle.faq,
         schemaMarkup: activeArticle.schemaMarkup,
         wpInstructions: activeArticle.wpInstructions,
-        sections: activeArticle.sections.map(s => ({
+        versions: activeArticle.versions.map((v: any) => ({
+          versionNumber: v.versionNumber,
+          changeNote: v.changeNote,
+          createdAt: v.createdAt
+        })),
+        sections: activeArticle.sections.map((s: any) => ({
           id: s.id,
           order: s.order,
           headingTitle: s.headingTitle,

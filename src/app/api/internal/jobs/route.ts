@@ -15,6 +15,32 @@ export async function POST(request: Request) {
     const { action, articleId, projectId, order, headingTitle, htmlContent, wordCount } = body;
     
     if (action === 'section_complete') {
+      // Editöryel revizyon için: Eski halini ArticleVersion olarak yedekle (Eğer daha önce içerik varsa)
+      const existingArticle = await prisma.article.findUnique({
+        where: { id: articleId },
+        include: { sections: true }
+      });
+      
+      const existingSection = existingArticle?.sections.find(s => s.order === order);
+      const isRewrite = !!existingSection;
+      
+      if (isRewrite && existingArticle?.htmlContent) {
+        await prisma.articleVersion.create({
+          data: {
+            articleId,
+            versionNumber: existingArticle.currentVersion,
+            htmlContent: existingArticle.htmlContent,
+            wpInstructions: existingArticle.wpInstructions as any,
+            changeNote: body.changeNote || `Otomatik yedek: Bölüm ${order} yeniden yazıldı.`
+          }
+        });
+        
+        await prisma.article.update({
+          where: { id: articleId },
+          data: { currentVersion: { increment: 1 } }
+        });
+      }
+
       // 1. Bölümü veri tabanına yaz (Checkpoint)
       await prisma.articleSection.upsert({
         where: {
@@ -69,15 +95,15 @@ export async function POST(request: Request) {
       if (isComplete) {
         // Fetch project and KB
         const proj = await prisma.project.findUnique({
-          where: { id: projectId },
+          where: { id: projectId || existingArticle?.projectId },
           include: { knowledgeBase: true }
         });
         
         const kbStr = JSON.stringify(proj?.knowledgeBase || {});
         
-        // Trigger Phase 1.8 Factory
+        // Trigger Phase 1.8 Factory (Bu aynı zamanda Kalite Kapısını da çalıştıracak)
         const { sendCeleryTask } = await import('@/lib/celery');
-        await sendCeleryTask('tasks.produce_article_factory', [articleId, mergedHtml, kbStr, projectId]);
+        await sendCeleryTask('tasks.produce_article_factory', [articleId, mergedHtml, kbStr, proj?.id || projectId]);
       }
       
       return NextResponse.json({ success: true });
@@ -237,7 +263,7 @@ export async function POST(request: Request) {
       
       const componentsData = typeof components === 'string' ? JSON.parse(components) : components;
 
-      await prisma.article.update({
+      const updatedArticle = await prisma.article.update({
         where: { id: articleId },
         data: {
           wpInstructions: componentsData.seo_wp,
@@ -247,8 +273,45 @@ export async function POST(request: Request) {
           qualityGate: qualityGateResult, // passed, score, failures, metrics
           state: qualityGateResult.passed ? 'PREVIEW_READY' : 'SEO_AUDIT',
           wordCount: qualityGateResult.metrics.wordCount
+        },
+        include: {
+          project: {
+            include: {
+              organization: { include: { cmsConnections: true } }
+            }
+          }
         }
       });
+      
+      // Auto WP Draft sync if this is an editorial rewrite (currentVersion > 1) and quality gate passed
+      if (qualityGateResult.passed && updatedArticle.currentVersion > 1) {
+        let fullHtml = updatedArticle.htmlContent || '';
+        if (updatedArticle.faq && Array.isArray(updatedArticle.faq) && updatedArticle.faq.length > 0) {
+          fullHtml += '\n\n<h2>Sıkça Sorulan Sorular</h2>\n';
+          updatedArticle.faq.forEach((f: any) => {
+            fullHtml += `<h3>${f.question}</h3>\n<p>${f.answer}</p>\n`;
+          });
+        }
+
+        const wpPayload = {
+          title: componentsData.seo_wp?.meta_title || updatedArticle.title,
+          content: fullHtml,
+          status: 'draft',
+          slug: componentsData.seo_wp?.wp_slug || updatedArticle.slug,
+        };
+
+        const wpConnection = updatedArticle.project.organization.cmsConnections.find(c => c.type === 'wordpress');
+        const connectionConfig = wpConnection ? {
+          url: wpConnection.siteUrl,
+          credentials: wpConnection.credentials
+        } : {
+          url: 'https://mock.wordpress.com',
+          credentials: 'mock_user:mock_pass'
+        };
+
+        const { sendCeleryTask } = await import('@/lib/celery');
+        await sendCeleryTask('tasks.publish_to_wordpress', [articleId, wpPayload, connectionConfig]);
+      }
       
       return NextResponse.json({ success: true, message: 'Article production and quality gate evaluation complete.' });
     }

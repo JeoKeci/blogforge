@@ -248,13 +248,17 @@ enum ArticleState {
 }
 
 model ArticleVersion {
-  id          String   @id @default(cuid())
-  articleId   String
-  article     Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  version     Int
-  content     String
-  changeNote  String?
-  createdAt   DateTime @default(now())
+  id              String   @id @default(cuid())
+  articleId       String
+  article         Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  versionNumber   Int
+  htmlContent     String
+  wpInstructions  Json?
+  changeNote      String?  // Kullanıcının veya AI'ın değişim notu (örn: "H2 başlığı üslup sebebiyle yeniden yazdırıldı")
+  createdById     String?  // Değişikliği yapan kullanıcı (opsiyonel)
+  createdAt       DateTime @default(now())
+
+  @@index([articleId])
 }
 
 model ArticleSection {

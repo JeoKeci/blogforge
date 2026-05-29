@@ -115,6 +115,11 @@ interface ActiveArticle {
   faq?: any;
   schemaMarkup?: any;
   wpInstructions?: any;
+  versions?: Array<{
+    versionNumber: number;
+    changeNote: string | null;
+    createdAt: string;
+  }>;
   progress: {
     completed: number;
     total: number;
@@ -154,6 +159,10 @@ export default function TestPanelPage() {
   const [newSourceIdentifier, setNewSourceIdentifier] = useState('');
   const [newSourceDisplayName, setNewSourceDisplayName] = useState('');
   const [newSourceTextContent, setNewSourceTextContent] = useState('');
+
+  // Rewrite state
+  const [rewriteSectionId, setRewriteSectionId] = useState<string | null>(null);
+  const [rewriteFeedback, setRewriteFeedback] = useState<string>('');
 
   const logContainerRef = useRef<HTMLDivElement>(null);
   const autoModeRef = useRef(autoMode);
@@ -478,6 +487,39 @@ export default function TestPanelPage() {
 
     await triggerNext(true);
     setPolling(true);
+    setLoading(null);
+  }
+
+  async function handleRewriteSubmit() {
+    if (!activeArticle || !rewriteSectionId || !rewriteFeedback.trim()) return;
+    
+    setLoading('rewrite');
+    addLog('🔄 Bölüm yeniden yazım talebi gönderiliyor...', 'info');
+    
+    try {
+      const res = await fetch('/api/test-panel/articles/rewrite-section', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleId: activeArticle.id,
+          sectionId: rewriteSectionId,
+          feedback: rewriteFeedback
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog('✅ Yeniden yazım Celery\'ye başarıyla gönderildi, makale kilitlendi.', 'success');
+        setRewriteSectionId(null);
+        setRewriteFeedback('');
+        setPolling(true);
+        setWorkerOnline(true);
+        await fetchStatus();
+      } else {
+        addLog(`❌ Yeniden yazım hatası: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Yeniden yazım hatası: ${e.message}`, 'error');
+    }
     setLoading(null);
   }
 
@@ -1010,20 +1052,48 @@ export default function TestPanelPage() {
                     const stepStatus = getStepStatus(index);
                     const section = activeArticle.sections?.find((s) => s.order === index + 1);
                     return (
-                      <div key={index} className="sectionStep">
-                        <div className={`stepIndicator ${stepStatus === 'complete' ? 'stepComplete' : stepStatus === 'active' ? 'stepActive' : 'stepPending'}`}>
-                          {stepStatus === 'complete' ? '✓' : stepStatus === 'active' ? '⋯' : index + 1}
-                        </div>
-                        <div className="stepInfo">
-                          <div className="stepTitle">{item.title}</div>
-                          <div className="stepMeta">
-                            {stepStatus === 'complete' && section
-                              ? `${section.wordCount} kelime`
-                              : stepStatus === 'active'
-                                ? 'Yazılıyor...'
-                                : 'Bekliyor'}
+                      <div key={index} className="sectionStep" style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <div className={`stepIndicator ${stepStatus === 'complete' ? 'stepComplete' : stepStatus === 'active' ? 'stepActive' : 'stepPending'}`}>
+                            {stepStatus === 'complete' ? '✓' : stepStatus === 'active' ? '⋯' : index + 1}
+                          </div>
+                          <div className="stepInfo" style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div className="stepTitle">{item.title}</div>
+                              <div className="stepMeta">
+                                {stepStatus === 'complete' && section
+                                  ? `${section.wordCount} kelime`
+                                  : stepStatus === 'active'
+                                    ? 'Yazılıyor...'
+                                    : 'Bekliyor'}
+                              </div>
+                            </div>
+                            {stepStatus === 'complete' && section && !isWriting && (
+                              <button 
+                                className="btn btnOutline btnMini" 
+                                style={{ padding: '4px 8px', fontSize: 11 }}
+                                onClick={() => setRewriteSectionId(rewriteSectionId === section.id ? null : section.id)}
+                              >
+                                🔄 Yeniden Yazdır
+                              </button>
+                            )}
                           </div>
                         </div>
+                        {rewriteSectionId === section?.id && (
+                          <div style={{ marginTop: 8, padding: 8, backgroundColor: 'var(--surface-50)', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
+                            <textarea 
+                              className="input" 
+                              style={{ width: '100%', minHeight: 60, fontSize: 12, marginBottom: 8 }} 
+                              placeholder="Ne değiştirilsin? Örn: Bu paragrafı çok jenerik buldum, Janka değerlerine vurgu yap..."
+                              value={rewriteFeedback}
+                              onChange={(e) => setRewriteFeedback(e.target.value)}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                              <button className="btn btnOutline btnMini" onClick={() => setRewriteSectionId(null)}>İptal</button>
+                              <button className="btn btnPrimary btnMini" onClick={handleRewriteSubmit} disabled={!rewriteFeedback.trim()}>Gönder</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1128,7 +1198,7 @@ export default function TestPanelPage() {
               </div>
             )}
           </div>
-          <div className="cardBody">
+          <div className="cardBody" style={{ opacity: isWriting ? 0.5 : 1, pointerEvents: isWriting ? 'none' : 'auto', transition: 'opacity 0.3s' }}>
             {hasArticle && activeArticle.htmlContent ? (
               <>
                 {/* Stats Bar */}
@@ -1201,6 +1271,25 @@ export default function TestPanelPage() {
                     <pre style={{ padding: 12, backgroundColor: 'var(--surface-50)', border: '1px solid var(--border-subtle)', borderRadius: 6, fontSize: 11, overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
                       {typeof activeArticle.schemaMarkup === 'string' ? activeArticle.schemaMarkup : JSON.stringify(activeArticle.schemaMarkup, null, 2)}
                     </pre>
+                  </div>
+                )}
+
+                {activeArticle.versions && activeArticle.versions.length > 0 && (
+                  <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
+                    <h4 style={{ margin: '0 0 12px 0', fontSize: 14 }}>📜 Versiyon Geçmişi</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {activeArticle.versions.map((v, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: 'var(--surface-50)', borderRadius: 6, fontSize: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--accent-indigo)' }}>v{v.versionNumber}</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>{v.changeNote}</span>
+                          </div>
+                          <div style={{ color: 'var(--text-muted)' }}>
+                            {new Date(v.createdAt).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </>

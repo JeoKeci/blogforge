@@ -14,7 +14,7 @@ api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
 @app.task(name="tasks.generate_section_iterative")
-def generate_section_iterative(article_id, project_id, section_order, heading_title, previous_content="", static_rules=""):
+def generate_section_iterative(article_id, project_id, section_order, heading_title, previous_content="", static_rules="", user_feedback=None):
     print(f"Yazım başladı: {heading_title} (Sıra: {section_order})")
     
     # Faz 1 Hafıza (Context) Kurulumu
@@ -32,6 +32,12 @@ def generate_section_iterative(article_id, project_id, section_order, heading_ti
     
     Görevin: Sadece belirtilen başlık altındaki metni Türkçe olarak, zengin ve akıcı HTML formatında (p, strong, ul, li kullanarak) yaz. Başlığı metnin içine tekrar ekleme.
     """
+    
+    if user_feedback:
+        prompt += f"""
+        DİKKAT: Kullanıcı bu bölümün bir önceki halini beğenmedi ve şu geri bildirimi bıraktı: "{user_feedback}". 
+        Yeni metni yazarken bu eleştiriyi kesinlikle dikkate al ve kurallara uymaya devam et.
+        """
     
     # LLM Call using configurable model (defaults to gemini-2.5-flash-lite due to quota constraints)
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
@@ -57,7 +63,8 @@ def generate_section_iterative(article_id, project_id, section_order, heading_ti
         "order": section_order,
         "headingTitle": heading_title,
         "htmlContent": generated_html,
-        "wordCount": word_count
+        "wordCount": word_count,
+        "changeNote": f"Revizyon: {user_feedback}" if user_feedback else None
     }
     
     headers = {

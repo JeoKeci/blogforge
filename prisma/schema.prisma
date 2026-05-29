@@ -35,6 +35,7 @@ model Project {
   
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+  lastError       String?
 }
 
 enum ProjectState {
@@ -54,6 +55,7 @@ enum ProjectState {
   STRATEGY_REVISION
   PLAN_APPROVED
   CONTENT_PRODUCTION
+  FAILED
 }
 
 model SiteAudit {
@@ -80,6 +82,7 @@ model SiteAudit {
   rawData            Json?
   approvedAt         DateTime?
   createdAt          DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Competitor {
@@ -102,6 +105,8 @@ model Competitor {
   analyzed         Boolean  @default(false)
   approvedAt       DateTime?
   createdAt        DateTime @default(now())
+  @@index([projectId])
+  updatedAt DateTime @updatedAt
 }
 
 model Strategy {
@@ -118,6 +123,7 @@ model Strategy {
   
   pillarFocus     String?
   keywordClusters Json?
+  contentPlans    ContentPlan[]
   
   revisions       StrategyRevision[]
   version         Int                @default(1)
@@ -142,12 +148,14 @@ model ContentPlan {
   projectId     String   @unique
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   strategyId    String?
+  strategy      Strategy? @relation(fields: [strategyId], references: [id])
   status        String   @default("DRAFT")
   suggestedGaps Json?    // Celery'den gelecek olan [{ title, focusKeyword, type: 'new_article'/'lsi_suggestion' }] yapısı
   
   articles      ArticlePlan[]
   approvedAt    DateTime?
   createdAt     DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ArticlePlan {
@@ -159,7 +167,6 @@ model ArticlePlan {
   order            Int
   slug             String?
   title            String
-  primaryKeyword   String?
   focusKeyword     String?
   secondaryKeywords Json?
   searchIntent     String?
@@ -175,6 +182,8 @@ model ArticlePlan {
   article          Article?
   status           String    @default("planned") // planned, in_progress, produced, published
   createdAt        DateTime  @default(now())
+  @@index([contentPlanId])
+  updatedAt DateTime @updatedAt
 }
 
 model InternalLink {
@@ -186,6 +195,9 @@ model InternalLink {
   anchorText   String
   status       String      @default("planned") // planned, placed, verified
   createdAt    DateTime    @default(now())
+  @@index([sourcePlanId])
+  @@index([targetPlanId])
+  updatedAt DateTime @updatedAt
 }
 
 model Article {
@@ -199,7 +211,6 @@ model Article {
   slug            String
   metaDescription String
   htmlContent     String
-  markdownContent String
   excerpt         String?
   
   focusKeyword    String
@@ -232,6 +243,8 @@ model Article {
   
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
+  @@unique([projectId, slug])
+  lastError       String?
 }
 
 enum ArticleState {
@@ -246,6 +259,7 @@ enum ArticleState {
   USER_APPROVED
   PUBLISHING
   PUBLISHED
+  FAILED
 }
 
 model ArticleVersion {
@@ -260,6 +274,8 @@ model ArticleVersion {
   createdAt       DateTime @default(now())
 
   @@index([articleId])
+  faq              Json?
+  schemaMarkup     Json?
 }
 
 model ArticleSection {
@@ -272,7 +288,6 @@ model ArticleSection {
   order           Int      // Section sequence number for recovery
   
   htmlContent     String
-  markdownContent String
   wordCount       Int
   
   sources         Json?    // Sources / references used: [{title, url}]
@@ -296,6 +311,7 @@ model CMSConnection {
   lastTestedAt DateTime?
   
   createdAt    DateTime  @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ContentSource {
@@ -311,6 +327,7 @@ model ContentSource {
   errorMessage  String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  @@index([projectId])
 }
 
 model Organization {
@@ -375,6 +392,7 @@ model ContentRule {
   isActive        Boolean       @default(true)
   origin          RuleOrigin    @default(AI_DERIVED)
   createdAt       DateTime      @default(now())
+  @@index([knowledgeBaseId])
 }
 
 enum RuleType {
@@ -398,6 +416,7 @@ model ContentPillar {
   scope           String
   colorCode       String?
   createdAt       DateTime      @default(now())
+  @@index([knowledgeBaseId])
 }
 
 model OutboundLink {
@@ -408,4 +427,5 @@ model OutboundLink {
   title           String
   usageArea       String?
   createdAt       DateTime      @default(now())
+  @@index([knowledgeBaseId])
 }

@@ -17,12 +17,19 @@ class CeleryConfig:
     
     # Upstash SSL (rediss://) configuration to prevent certificate issues
     if redis_url.startswith("rediss://"):
+        _insecure = os.getenv("ALLOW_INSECURE_TLS", "false").lower() == "true"
+        _cert_reqs = ssl.CERT_NONE if _insecure else ssl.CERT_REQUIRED
         broker_use_ssl = {
-            "ssl_cert_reqs": ssl.CERT_NONE
+            "ssl_cert_reqs": _cert_reqs
         }
         redis_backend_use_ssl = {
-            "ssl_cert_reqs": ssl.CERT_NONE
+            "ssl_cert_reqs": _cert_reqs
         }
     
     # Zombie Process Recycler (Phase 1): recycle child processes to prevent memory leaks
     worker_max_tasks_per_child = 50
+    
+    # Phase 3 Reliability Configs
+    task_acks_late = True
+    task_reject_on_worker_lost = True
+    worker_prefetch_multiplier = 1

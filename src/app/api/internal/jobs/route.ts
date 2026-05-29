@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
+import { timingSafeEqual } from 'crypto';
+
+function safeEqual(a: string, b: string) {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+}
 
 export async function POST(request: Request) {
   try {
     const authHeader = request.headers.get('Authorization');
     const secretToken = process.env.INTERNAL_SECRET_TOKEN;
     
-    // Faz 1 Güvenlik Kalkanı: Bearer Token kontrolü
-    if (!authHeader || authHeader !== `Bearer ${secretToken}`) {
+    if (!authHeader || !secretToken || !safeEqual(authHeader, `Bearer ${secretToken}`)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
@@ -15,6 +22,24 @@ export async function POST(request: Request) {
     const { action, articleId, projectId, order, headingTitle, htmlContent, wordCount } = body;
     
     if (action === 'section_complete') {
+      const SectionCompleteSchema = z.object({
+        articleId: z.string(),
+        order: z.number(),
+        headingTitle: z.string(),
+        htmlContent: z.string(),
+        headingLevel: z.number().optional().default(2)
+      });
+      const parsedBody = SectionCompleteSchema.safeParse(body);
+      if (!parsedBody.success) {
+        return NextResponse.json({ error: 'Invalid payload', details: parsedBody.error }, { status: 400 });
+      }
+      
+      const { articleId: parsedArticleId, order: parsedOrder, headingTitle, htmlContent, headingLevel } = parsedBody.data;
+      
+      // Override destructured variables to use validated data
+      const order = parsedOrder;
+      const articleId = parsedArticleId;
+
       // Editöryel revizyon için: Eski halini ArticleVersion olarak yedekle (Eğer daha önce içerik varsa)
       const existingArticle = await prisma.article.findUnique({
         where: { id: articleId },
@@ -51,16 +76,14 @@ export async function POST(request: Request) {
         },
         update: {
           htmlContent,
-          markdownContent: '', // MVP'de boş bırakılabilir veya HTML'den dönüştürülebilir
           wordCount
         },
         create: {
           articleId,
           order,
           headingTitle,
-          headingLevel: 2, // Default H2
+          headingLevel,
           htmlContent,
-          markdownContent: '',
           wordCount
         }
       });
@@ -71,7 +94,7 @@ export async function POST(request: Request) {
         orderBy: { order: 'asc' }
       });
       
-      const mergedHtml = sections.map(s => `<h2>${s.headingTitle}</h2>\n${s.htmlContent}`).join('\n\n');
+      const mergedHtml = sections.map(s => `<h${s.headingLevel}>${s.headingTitle}</h${s.headingLevel}>\n${s.htmlContent}`).join('\n\n');
       const totalWordCount = sections.reduce((acc, curr) => acc + curr.wordCount, 0);
       
       // 3. Bölüm sayısını taslaktaki (outline) H2/H3 sayısıyla karşılaştır
@@ -96,14 +119,19 @@ export async function POST(request: Request) {
         // Fetch project and KB
         const proj = await prisma.project.findUnique({
           where: { id: projectId || existingArticle?.projectId },
-          include: { knowledgeBase: true }
+          include: { knowledgeBase: { include: { rules: { where: { isActive: true } } } } }
         });
         
-        const kbStr = JSON.stringify(proj?.knowledgeBase || {});
+        const kbStr = JSON.stringify({
+          writingInstructions: proj?.knowledgeBase?.writingInstructions ?? {},
+          verifiedFacts: proj?.knowledgeBase?.verifiedFacts ?? {},
+          rules: proj?.knowledgeBase?.rules?.map(r => ({ type: r.type, value: r.value, reason: r.reason })) ?? [],
+        });
+        const focusKeyword = existingArticle?.focusKeyword ?? '';
         
         // Trigger Phase 1.8 Factory (Bu aynı zamanda Kalite Kapısını da çalıştıracak)
         const { sendCeleryTask } = await import('@/lib/celery');
-        await sendCeleryTask('tasks.produce_article_factory', [articleId, mergedHtml, kbStr, proj?.id || projectId]);
+        await sendCeleryTask('tasks.produce_article_factory', [articleId, mergedHtml, kbStr, proj?.id || projectId, focusKeyword]);
       }
       
       return NextResponse.json({ success: true });
@@ -228,7 +256,7 @@ export async function POST(request: Request) {
               secondaryKeywords: art.secondaryKeywords,
               outline: art.outline,
               order: art.order,
-              status: 'PLANNED'
+              status: 'planned'
             }
           });
           slugToIdMap[art.slug] = plan.id;
@@ -309,8 +337,24 @@ export async function POST(request: Request) {
           credentials: 'mock_user:mock_pass'
         };
 
-        const { sendCeleryTask } = await import('@/lib/celery');
-        await sendCeleryTask('tasks.publish_to_wordpress', [articleId, wpPayload, connectionConfig]);
+        const { publishToWordPress } = await import('@/lib/wordpress');
+        const publishResult = await publishToWordPress({
+          siteUrl: connectionConfig.url,
+          credentials: connectionConfig.credentials,
+          payload: wpPayload
+        });
+        
+        if (!publishResult.mocked && publishResult.id) {
+          await prisma.article.update({
+            where: { id: articleId },
+            data: { 
+              state: 'PUBLISHED', 
+              publishedAt: new Date(), 
+              cmsPostId: String(publishResult.id), 
+              cmsPostUrl: publishResult.url 
+            }
+          });
+        }
       }
       
       return NextResponse.json({ success: true, message: 'Article production and quality gate evaluation complete.' });
@@ -360,9 +404,118 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ success: true });
     }
+    if (action === 'sources_analyzed') {
+  const { projectId, results } = body;
+  if (!projectId || !results || !Array.isArray(results)) {
+    return NextResponse.json({ error: 'Missing projectId or results' }, { status: 400 });
+  }
+
+  for (const res of results) {
+    const { sourceId, type, extractedData, analysisResult } = res;
+    if (!sourceId) continue;
+    
+    if (analysisResult && analysisResult.error) {
+      await prisma.contentSource.update({
+        where: { id: sourceId },
+        data: { status: 'FAILED', errorMessage: analysisResult.error }
+      });
+      continue;
+    }
+
+    const mergedData = { ...(extractedData || {}), ...(analysisResult || {}) };
+
+    await prisma.contentSource.update({
+      where: { id: sourceId },
+      data: { status: 'ANALYZED', extractedData: mergedData }
+    });
+
+    if (type === 'WEBSITE' && analysisResult?.audit) {
+      const domain = new URL(extractedData.targetUrl || '').hostname.replace(/^www\./, '');
+      await prisma.siteAudit.upsert({
+        where: { projectId },
+        update: {
+          domain,
+          brandInfo: {
+            industry: analysisResult.industry || '',
+            targetAudience: analysisResult.targetAudience || '',
+            toneOfVoice: analysisResult.toneOfVoice || '',
+            detectedArchetype: analysisResult.detectedArchetype || '',
+            detectedKeywords: analysisResult.detectedKeywords || [],
+          },
+          auditMatrix: analysisResult.audit,
+          actionPlan: analysisResult.actionPlan || [],
+          rawData: mergedData,
+          seoScore: analysisResult.audit?.totalScore ?? null,
+        },
+        create: {
+          projectId,
+          domain,
+          brandInfo: {
+            industry: analysisResult.industry || '',
+            targetAudience: analysisResult.targetAudience || '',
+            toneOfVoice: analysisResult.toneOfVoice || '',
+            detectedArchetype: analysisResult.detectedArchetype || '',
+            detectedKeywords: analysisResult.detectedKeywords || [],
+          },
+          auditMatrix: analysisResult.audit,
+          actionPlan: analysisResult.actionPlan || [],
+          rawData: mergedData,
+          seoScore: analysisResult.audit?.totalScore ?? null,
+          existingPages: [],
+          existingKeywords: [],
+        }
+      });
+    }
+  }
+
+  const activeAnalyzedSources = await prisma.contentSource.findMany({
+    where: { projectId, status: 'ANALYZED' }
+  });
+
+  if (activeAnalyzedSources.length > 0) {
+    const siteAudit = await prisma.siteAudit.findUnique({
+      where: { projectId }
+    });
+    if (siteAudit) {
+      const rawAuditDataStr = JSON.stringify(siteAudit.rawData || {});
+      const { sendCeleryTask } = await import('@/lib/celery');
+      await sendCeleryTask('tasks.derive_constitution', [
+        projectId,
+        siteAudit.id,
+        rawAuditDataStr
+      ]);
+    }
+  } else {
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { state: 'FAILED', lastError: 'Hiçbir dijital kaynak başarıyla analiz edilemedi.' }
+    });
+  }
+
+  return NextResponse.json({ success: true });
+}
+
+  if (action === 'job_failed') {
+      const { projectId, articleId, error } = body;
+      
+      if (articleId) {
+        await prisma.article.update({
+          where: { id: articleId },
+          data: { state: 'FAILED', lastError: error }
+        });
+      } else if (projectId) {
+        await prisma.project.update({
+          where: { id: projectId },
+          data: { state: 'FAILED', lastError: error }
+        });
+      }
+      console.error(`[JOB_FAILED] Target: ${articleId || projectId}, Error: ${error}`);
+      return NextResponse.json({ success: true, message: 'Failure recorded.' });
+    }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   } catch (error: any) {
+    console.error('[JOBS_ROUTE_ERROR]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

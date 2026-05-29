@@ -70,10 +70,27 @@ export async function POST(request: Request) {
       data: { state: 'PUBLISHING' }
     });
 
-    // Trigger Celery Task
-    await sendCeleryTask('tasks.publish_to_wordpress', [articleId, wpPayload, connectionConfig]);
+    // Publish directly from Next.js
+    const { publishToWordPress } = await import('@/lib/wordpress');
+    const publishResult = await publishToWordPress({
+      siteUrl: connectionConfig.url,
+      credentials: connectionConfig.credentials,
+      payload: wpPayload
+    });
 
-    return NextResponse.json({ success: true, message: 'WordPress publish task started.' });
+    if (!publishResult.mocked && publishResult.id) {
+      await prisma.article.update({
+        where: { id: articleId },
+        data: { state: 'PUBLISHED', publishedAt: new Date(), cmsPostId: String(publishResult.id), cmsPostUrl: publishResult.url }
+      });
+    } else if (publishResult.mocked) {
+      await prisma.article.update({
+        where: { id: articleId },
+        data: { state: 'PUBLISHED', publishedAt: new Date() }
+      });
+    }
+
+    return NextResponse.json({ success: true, message: 'WordPress publish complete.', url: publishResult.url });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

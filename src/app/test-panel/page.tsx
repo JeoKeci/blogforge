@@ -87,6 +87,7 @@ interface Project {
   siteUrl: string;
   siteAudit?: SiteAuditData | null;
   knowledgeBase?: KnowledgeBaseData | null;
+  contentPlan?: any;
 }
 
 interface ArticleInfo {
@@ -701,7 +702,9 @@ export default function TestPanelPage() {
             )}
 
             <div className="cardBody" style={{ padding: 0 }}>
-
+              {/* Content plan tracker items will go here */}
+            </div>
+          </div>
           {/* Footprint Sources Manager */}
           <div className="card">
             <div className="cardHeader">

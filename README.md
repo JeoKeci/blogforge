@@ -507,3 +507,5 @@ npm run dev
 > **DOKÜMAN BİTİŞ NOTU:** Bu dosya BlogForge'un resmi v2 dokümantasyonudur. Fazlandırma, grounding-first ilkesi ve seam'ler tüm geliştirmelerin bağlayıcı çerçevesidir. Yeni bir yetenek eklenmeden önce: "Hangi faza ait? Hangi seam'i tüketiyor/besliyor? Tenant-safe mi?" sorularına yanıt verilmelidir.
 
 *Son güncelleme: 29 Mayıs 2026 — v2 (Faz 1.6 → 1.9 detaylandırması)*
+
+> **GÜVENLİK UYARISI:** worker/.env dosyası yanlışlıkla paylaşıldıysa veya public repo olarak açıldıysa, GEMINI_API_KEY ve INTERNAL_SECRET_TOKEN anahtarları derhal **ROTATE EDİLMELİDİR**.

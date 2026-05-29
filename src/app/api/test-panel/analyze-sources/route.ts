@@ -6,7 +6,6 @@ import {
   analyzeInstagram, 
   analyzeCustom 
 } from '@/lib/pipeline/source-analyzers';
-import { generateUnifiedStrategy } from '@/lib/pipeline/strategy-planner';
 import { sendCeleryTask } from '@/lib/celery';
 const TEST_PROJECT_ID = 'test-project-id';
 
@@ -80,63 +79,23 @@ export async function POST() {
           throw new Error(`Bilinmeyen kaynak türü: ${source.type}`);
         }
 
-        // Save successfully analyzed data
-        // Merge with existing JSON to preserve pasted inputs if needed
+        // Save extracted raw data (Status stays FETCHING or EXTRACTED until LLM is done)
         const currentData = typeof source.extractedData === 'object' ? (source.extractedData as any) || {} : {};
         const mergedData = { ...currentData, ...result };
 
         await prisma.contentSource.update({
           where: { id: source.id },
           data: {
-            status: 'ANALYZED',
+            status: 'FETCHING', // still fetching/analyzing via celery
             extractedData: mergedData
           }
         });
-
-        // Persist audit data to SiteAudit model for WEBSITE sources
-        if (source.type === 'WEBSITE' && result?.audit) {
-          const domain = new URL(source.url || '').hostname.replace(/^www\./, '');
-          await prisma.siteAudit.upsert({
-            where: { projectId: TEST_PROJECT_ID },
-            update: {
-              domain,
-              brandInfo: {
-                industry: result.industry || '',
-                targetAudience: result.targetAudience || '',
-                toneOfVoice: result.toneOfVoice || '',
-                detectedArchetype: result.detectedArchetype || '',
-                detectedKeywords: result.detectedKeywords || [],
-              },
-              auditMatrix: result.audit,
-              actionPlan: result.actionPlan || [],
-              rawData: mergedData,
-              seoScore: result.audit?.totalScore ?? null,
-            },
-            create: {
-              projectId: TEST_PROJECT_ID,
-              domain,
-              brandInfo: {
-                industry: result.industry || '',
-                targetAudience: result.targetAudience || '',
-                toneOfVoice: result.toneOfVoice || '',
-                detectedArchetype: result.detectedArchetype || '',
-                detectedKeywords: result.detectedKeywords || [],
-              },
-              auditMatrix: result.audit,
-              actionPlan: result.actionPlan || [],
-              rawData: mergedData,
-              seoScore: result.audit?.totalScore ?? null,
-              existingPages: [],
-              existingKeywords: [],
-            }
-          });
-        }
 
         analysisSummary.push({
           id: source.id,
           name: source.displayName,
           type: source.type,
-          status: 'ANALYZED'
+          status: 'SENT_TO_CELERY'
         });
 
       } catch (err: any) {

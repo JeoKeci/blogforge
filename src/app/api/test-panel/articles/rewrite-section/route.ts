@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { sendCeleryTask } from '@/lib/celery';
+import { buildConstitution } from '@/lib/knowledge-base';
 
 export async function POST(request: Request) {
   try {
@@ -40,17 +41,23 @@ export async function POST(request: Request) {
       .map(s => `## ${s.headingTitle}\n${s.htmlContent}`)
       .join('\n\n');
 
-    const kbStr = JSON.stringify(article.project.knowledgeBase || {});
+    const constitution = await buildConstitution(article.projectId);
+    if (!constitution) {
+      return NextResponse.json({ error: 'KnowledgeBase onaylı değil; önce KB\'yi APPROVED yapın.' }, { status: 422 });
+    }
 
-    // Trigger Celery Task (we'll update worker to accept user_feedback)
+    // Trigger Celery Task
     await sendCeleryTask('tasks.generate_section_iterative', [
       article.id,
       article.projectId,
       section.order,
       section.headingTitle,
       contextStr,
-      kbStr,
-      feedback // new param
+      constitution.rulesText,
+      section.headingLevel || 2,
+      constitution.language,
+      constitution.tone,
+      feedback
     ]);
 
     return NextResponse.json({ success: true, message: 'Rewrite task triggered successfully' });

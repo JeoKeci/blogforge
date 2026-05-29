@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { sendCeleryTask } from '@/lib/celery';
+import { buildConstitution } from '@/lib/knowledge-base';
 
 // POST /api/test-panel — seed database and/or trigger section generation
 export async function POST(request: Request) {
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
           contentPlanId,
           order: 1,
           title: 'SEO Uyumlu Makale Yazım Kılavuzu',
-          primaryKeyword: 'seo uyumlu makale',
+          focusKeyword: 'seo uyumlu makale',
           secondaryKeywords: '[]',
           searchIntent: 'informational',
           contentType: 'guide',
@@ -107,7 +108,6 @@ export async function POST(request: Request) {
           slug: 'seo-uyumlu-makale-yazim-kilavuzu',
           metaDescription: 'SEO uyumlu makale yazımı hakkında detaylı kılavuz.',
           htmlContent: '',
-          markdownContent: '',
           focusKeyword: 'seo uyumlu makale',
           wordCount: 0,
           state: 'OUTLINE_APPROVED',
@@ -152,14 +152,9 @@ export async function POST(request: Request) {
         ? article.sections[completedCount - 1].htmlContent
         : '';
 
-      // Build static rules based on section position
-      let staticRules = 'Dil Türkçe olmalı. Zengin HTML (p, strong, ul, li) kullanılmalı.';
-      if (nextOrder === 1) {
-        staticRules += ' Makale giriş bölümü olduğu için konuya hızlı ve çarpıcı bir giriş yapmalı.';
-      } else if (nextOrder === outline.length) {
-        staticRules += ' Makale sonuç bölümü olduğu için konuyu toparlayıp okuyucuyu harekete geçiren güçlü bir kapanış yapmalı.';
-      } else {
-        staticRules += ' Makale ana bölümü olduğu için pratik SEO tekniklerini anlatmalı.';
+      const constitution = await buildConstitution(article.projectId);
+      if (!constitution) {
+        return NextResponse.json({ error: 'KnowledgeBase onaylı değil; önce KB\'yi APPROVED yapın.' }, { status: 422 });
       }
 
       // Update article state to WRITING
@@ -171,11 +166,14 @@ export async function POST(request: Request) {
       // Dispatch to Celery via Redis
       const taskId = await sendCeleryTask('tasks.generate_section_iterative', [
         articleId,
-        'test-project-id',
+        article.projectId,
         nextOrder,
         nextSection.title,
         previousContent,
-        staticRules,
+        constitution.rulesText,
+        nextSection.level || 2,
+        constitution.language,
+        constitution.tone,
       ]);
 
       return NextResponse.json({
@@ -221,13 +219,9 @@ export async function POST(request: Request) {
         ? article.sections[completedCount - 1].htmlContent
         : '';
 
-      let staticRules = 'Dil Türkçe olmalı. Zengin HTML (p, strong, ul, li) kullanılmalı.';
-      if (nextOrder === 1) {
-        staticRules += ' Makale giriş bölümü olduğu için konuya hızlı ve çarpıcı bir giriş yapmalı.';
-      } else if (nextOrder === outline.length) {
-        staticRules += ' Makale sonuç bölümü olduğu için konuyu toparlayıp okuyucuyu harekete geçiren güçlü bir kapanış yapmalı.';
-      } else {
-        staticRules += ' Makale ana bölümü olduğu için pratik SEO tekniklerini anlatmalı.';
+      const constitution = await buildConstitution(article.projectId);
+      if (!constitution) {
+        return NextResponse.json({ error: 'KnowledgeBase onaylı değil; önce KB\'yi APPROVED yapın.' }, { status: 422 });
       }
 
       await prisma.article.update({
@@ -237,11 +231,14 @@ export async function POST(request: Request) {
 
       const taskId = await sendCeleryTask('tasks.generate_section_iterative', [
         articleId,
-        'test-project-id',
+        article.projectId,
         nextOrder,
         nextSection.title,
         previousContent,
-        staticRules,
+        constitution.rulesText,
+        nextSection.level || 2,
+        constitution.language,
+        constitution.tone,
       ]);
 
       return NextResponse.json({

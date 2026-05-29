@@ -66,7 +66,7 @@ export function parseYouTubeInput(input: string): { handle?: string; channelId?:
  * Analyzes a Website URL by crawling its homepage and extracting metadata and content,
  * then runs a 100-point Technical Health, SEO & GEO Audit Scoring Matrix via Gemini.
  */
-export async function analyzeWebsite(url: string): Promise<BaseAnalysisResult> {
+export async function analyzeWebsite(url: string): Promise<any> {
   try {
     let targetUrl = url.trim();
     if (!/^https?:\/\//i.test(targetUrl)) {
@@ -232,7 +232,7 @@ Kesinlikle sadece JSON formatında yanıt ver. Yanıtın başka hiçbir metin i�
 /**
  * Analyzes a YouTube Channel (API v3 with simulated fallback)
  */
-export async function analyzeYouTube(handleOrUrl: string): Promise<BaseAnalysisResult & { channelStats?: any }> {
+export async function analyzeYouTube(handleOrUrl: string): Promise<any> {
   const apiKey = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
   const { handle, channelId } = parseYouTubeInput(handleOrUrl);
   
@@ -299,43 +299,14 @@ export async function analyzeYouTube(handleOrUrl: string): Promise<BaseAnalysisR
       }
     }
     
-    const prompt = `
-    Aşağıdaki YouTube kanalı ve son videoları hakkında bilgi verildi. Bu verileri analiz et, kanalın tarzını, tonunu, ana konularını ve hedef kitlesini çıkar.
-    Kesinlikle sadece JSON formatında yanıt ver. Yanıtın başka hiçbir metin içermemelidir.
-    
-    KANAL ADI: ${channelTitle}
-    AÇIKLAMA: ${channelDescription}
-    ABONE SAYISI: ${subscriberCount}
-    VİDEO SAYISI: ${videoCount}
-    
-    SON 5 VİDEO:
-    ${recentVideos.map((v, i) => `${i+1}. BAŞLIK: ${v.title}\nAÇIKLAMA: ${v.description.substring(0, 300)}...\n`).join('\n')}
-    
-    Lütfen şu şemaya göre JSON döndür:
-    {
-      "brandName": "${channelTitle}",
-      "toneOfVoice": "Kanalın konuşma tonu ve tarzı (örn: Eğitici, samimi, dinamik, sohbet havasında)",
-      "targetAudience": "İzleyici kitlesi tanımı",
-      "coreTopics": ["Konu 1", "Konu 2", "Konu 3"],
-      "recentVideoInsights": [
-        { "title": "Video Başlığı", "keyTakeaway": "Videodan çıkarılan ana fikir veya blog yazısı olabilecek konu başlığı" }
-      ],
-      "summary": "Kanalın içeriği ve temaları hakkında genel özet"
-    }
-    `;
-    
-    const geminiResponse = await generateContent(prompt, true);
-    const result = JSON.parse(geminiResponse);
-    
-    return {
-      ...result,
-      channelStats: {
-        subscriberCount: parseInt(subscriberCount),
-        videoCount: parseInt(videoCount),
-        channelId: resolvedChannelId
-      }
+        return {
+      channelTitle,
+      channelDescription,
+      subscriberCount: parseInt(subscriberCount),
+      videoCount: parseInt(videoCount),
+      channelId: resolvedChannelId,
+      recentVideos
     };
-    
   } catch (error: any) {
     console.error('YouTube API Hatası:', error.message);
     return runSimulatedYouTubeAnalysis(handleOrUrl, `YouTube API hatası: ${error.message}. Simüle ediliyor.`);
@@ -345,34 +316,16 @@ export async function analyzeYouTube(handleOrUrl: string): Promise<BaseAnalysisR
 /**
  * Fallback simulator when YouTube API is not working
  */
-async function runSimulatedYouTubeAnalysis(handleOrUrl: string, reason: string): Promise<BaseAnalysisResult & { channelStats: any }> {
+async function runSimulatedYouTubeAnalysis(handleOrUrl: string, reason: string): Promise<any> {
   const cleanInput = handleOrUrl.replace(/^https?:\/\/(www\.)?youtube\.com\//i, '').replace(/^@/, '');
   
-  const prompt = `
-    Kullanıcı şu YouTube kanalını analiz etmemizi istedi: "${cleanInput}".
-    YouTube API şu sebeple kullanılamadı: "${reason}".
-    Kanal isminden veya kullanıcı girdisinden yola çıkarak bu kanalın ne hakkında olabileceğini, tonunu ve hedef kitlesini simüle et/tahmin et.
-    Kesinlikle sadece JSON formatında yanıt ver. Yanıtın başka hiçbir metin içermemelidir.
     
-    Lütfen şu şemaya göre JSON döndür:
-    {
-      "brandName": "${cleanInput} (YouTube)",
-      "toneOfVoice": "Tahmini kanal tonu (örn: Dinamik, Samimi, Öğretici)",
-      "targetAudience": "Tahmini hedef kitle",
-      "coreTopics": ["Konu Fikri 1", "Konu Fikri 2"],
-      "recentVideoInsights": [
-        { "title": "Tahmini Popüler Video Başlığı", "keyTakeaway": "Kanal temasına uygun video fikri" }
-      ],
-      "summary": "Kanal ismi analiz edilerek tahmin edilen içerik odağı."
-    }
-  `;
-  
-  const geminiResponse = await generateContent(prompt, true);
-  const result = JSON.parse(geminiResponse);
   return {
-    ...result,
+    type: 'YOUTUBE_SIMULATED',
+    cleanInput,
+    reason,
     channelStats: {
-      subscriberCount: 25000, // Simulated default
+      subscriberCount: 25000,
       videoCount: 120,
       simulated: true,
       simulationReason: reason
@@ -383,35 +336,21 @@ async function runSimulatedYouTubeAnalysis(handleOrUrl: string, reason: string):
 /**
  * Analyzes Instagram bio/recent posts (accepts manual pasted text)
  */
-export async function analyzeInstagram(username: string, rawText?: string): Promise<BaseAnalysisResult> {
+export async function analyzeInstagram(username: string, rawText?: string): Promise<any> {
   const profileName = username.trim().replace(/^@/, '');
   
-  const prompt = `
-  Aşağıdaki Instagram sayfası bilgilerini analiz et. Profil sahibi kimdir, ne tür içerikler üretir, tonu ve tarzı nedir, hedef kitlesi kimdir?
-  Kesinlikle sadece JSON formatında yanıt ver. Yanıtın başka hiçbir metin içermemelidir.
-  
-  INSTAGRAM KULLANICI ADI: @${profileName}
-  KULLANICI METİN GİRDİSİ (BİO VE PAYLAŞIMLAR):
-  ${rawText || 'Yazılı bir bilgi girilmedi. Profil adından yola çıkarak analiz et.'}
-  
-  Lütfen şu şemaya göre JSON döndür:
-  {
-    "brandName": "@${profileName}",
-    "toneOfVoice": "Instagram profilinin tonu (örn: Görsel ağırlıklı, samimi, estetik, ilham verici, günlük)",
-    "targetAudience": "Instagram takipçi kitlesi tanımı",
-    "coreTopics": ["İçerik Konusu 1", "İçerik Konusu 2"],
-    "summary": "Instagram profili ve içerik odağı hakkında genel özet"
-  }
-  `;
-  
-  const geminiResponse = await generateContent(prompt, true);
-  return JSON.parse(geminiResponse) as BaseAnalysisResult;
+    
+  return {
+    type: 'INSTAGRAM',
+    profileName,
+    rawText: rawText || 'Yazılı bir bilgi girilmedi. Profil adından yola çıkarak analiz et.'
+  };
 }
 
 /**
  * Analyzes custom context files/text
  */
-export async function analyzeCustom(displayName: string, text: string): Promise<BaseAnalysisResult> {
+export async function analyzeCustom(displayName: string, text: string): Promise<any> {
   const prompt = `
   Kullanıcının yüklediği özel marka rehberi, doküman veya açıklama metnini analiz et. Markanın genel duruşunu, tonunu, kitle analizini ve stratejik hedeflerini özetle.
   Kesinlikle sadece JSON formatında yanıt ver. Yanıtın başka hiçbir metin içermemelidir.
@@ -430,6 +369,9 @@ export async function analyzeCustom(displayName: string, text: string): Promise<
   }
   `;
   
-  const geminiResponse = await generateContent(prompt, true);
-  return JSON.parse(geminiResponse) as BaseAnalysisResult;
+  return {
+    type: 'CUSTOM',
+    displayName,
+    text: text.substring(0, 10000)
+  };
 }

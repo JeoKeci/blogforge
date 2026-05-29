@@ -62,9 +62,23 @@ export async function POST(request: Request) {
         data: {
           htmlContent: mergedHtml,
           wordCount: totalWordCount,
-          state: isComplete ? 'PREVIEW_READY' : 'WRITING'
+          state: isComplete ? 'IMAGES_GENERATING' : 'WRITING'
         }
       });
+      
+      if (isComplete) {
+        // Fetch project and KB
+        const proj = await prisma.project.findUnique({
+          where: { id: projectId },
+          include: { knowledgeBase: true }
+        });
+        
+        const kbStr = JSON.stringify(proj?.knowledgeBase || {});
+        
+        // Trigger Phase 1.8 Factory
+        const { sendCeleryTask } = await import('@/lib/celery');
+        await sendCeleryTask('tasks.produce_article_factory', [articleId, mergedHtml, kbStr, projectId]);
+      }
       
       return NextResponse.json({ success: true });
     }
@@ -216,6 +230,27 @@ export async function POST(request: Request) {
       });
 
       return NextResponse.json({ success: true, message: 'Strategy and internal link graph generated for human review.' });
+    }
+    
+    if (action === 'production_complete') {
+      const { articleId, components, qualityGateResult } = body;
+      
+      const componentsData = typeof components === 'string' ? JSON.parse(components) : components;
+
+      await prisma.article.update({
+        where: { id: articleId },
+        data: {
+          wpInstructions: componentsData.seo_wp,
+          faq: componentsData.faqs,
+          geoReference: { citationHtml: componentsData.geo_citation_html },
+          schemaMarkup: componentsData.schema_json_ld,
+          qualityGate: qualityGateResult, // passed, score, failures, metrics
+          state: qualityGateResult.passed ? 'PREVIEW_READY' : 'SEO_AUDIT',
+          wordCount: qualityGateResult.metrics.wordCount
+        }
+      });
+      
+      return NextResponse.json({ success: true, message: 'Article production and quality gate evaluation complete.' });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

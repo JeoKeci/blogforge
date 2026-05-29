@@ -138,6 +138,10 @@ export async function GET(request: Request) {
         wordCount: activeArticle.wordCount,
         htmlContent: activeArticle.htmlContent,
         articlePlan: activeArticle.articlePlan,
+        qualityGate: activeArticle.qualityGate,
+        faq: activeArticle.faq,
+        schemaMarkup: activeArticle.schemaMarkup,
+        wpInstructions: activeArticle.wpInstructions,
         sections: activeArticle.sections.map(s => ({
           id: s.id,
           order: s.order,

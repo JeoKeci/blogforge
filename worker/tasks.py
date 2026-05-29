@@ -4,6 +4,8 @@ import os
 from main import app
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
+import re
+from bs4 import BeautifulSoup
 
 # Initialize Gemini Client (will use GEMINI_API_KEY from environment)
 # Wait, genai.Client() automatically checks for GEMINI_API_KEY env variable,
@@ -225,5 +227,144 @@ def generate_strategy(project_id, knowledge_base_str, site_audit_str):
     if res.status_code == 200:
         print(f"Strateji başarıyla üretildi ve API'ye iletildi.")
         return {"status": "success", "projectId": project_id}
+        raise Exception(f"Webhook hatası: {res.text}")
+
+# --- Phase 1.8 Schemas ---
+class SEOAndWPProps(BaseModel):
+    meta_title: str = Field(description="Max 60 karakterlik SEO başlığı")
+    meta_description: str = Field(description="Max 135 karakterlik SEO açıklaması")
+    wp_slug: str = Field(description="WordPress uyumlu URL slug")
+    wp_category: str = Field(description="İçeriğin yayınlanacağı en uygun kategori adı")
+
+class FAQItem(BaseModel):
+    question: str = Field(description="B2B veya PAA odaklı teknik soru")
+    answer: str = Field(description="Kural anayasasına dayalı kesin, net cevap")
+
+class ImagePromptItem(BaseModel):
+    section_order: int = Field(description="Görselin yerleştirileceği bölümün order numarası")
+    prompt: str = Field(description="Midjourney/Imagen için fotogerçekçi B2B üretim promptu")
+    alt_text: str = Field(description="SEO uyumlu görsel alt etiketi")
+
+class ArticleComponentsResponse(BaseModel):
+    seo_wp: SEOAndWPProps
+    faqs: List[FAQItem]
+    geo_citation_html: str = Field(description="AI atıfı ve GEO grounding için HTML blok")
+    schema_json_ld: str = Field(description="Article ve FAQPage birleşik JSON-LD şeması stringi")
+    image_prompts: List[ImagePromptItem]
+
+@app.task(name="tasks.produce_article_factory")
+def produce_article_factory(article_id: str, html_content: str, knowledge_base_str: str, project_id: str):
+    """
+    Üretilmiş olan makale metni (html_content) ve anayasa üzerinden
+    yapılandırılmış çıktıları (SEO, FAQ, Schema, Görsel) oluşturur ve
+    kantitatif kalite kapısını (Quality Gate) test eder.
+    """
+    print(f"[{article_id}] Makale Fabrikası çalışıyor...")
+    
+    # 1. Quality Gate: Kantitatif Ölçüm (Kelime sayısı, Hedef kelime density vs.)
+    soup = BeautifulSoup(html_content, 'html.parser')
+    text_content = soup.get_text(separator=' ')
+    word_count = len(re.findall(r'\w+', text_content))
+    
+    # Kaba bir yasaklı kelime analizi (Mock implementation for now)
+    # TODO: fetch actual forbidden phrases from Knowledge Base rules
+    forbidden_issues = []
+    
+    passed_quality_gate = True
+    if word_count < 300: # Example threshold
+        passed_quality_gate = False
+        forbidden_issues.append("Word count is too low (<300).")
+
+    quality_gate_result = {
+        "passed": passed_quality_gate,
+        "score": 100 if passed_quality_gate else 40,
+        "failures": forbidden_issues,
+        "metrics": {
+            "wordCount": word_count,
+            "keywordDensity": 0.0  # calculate dynamically later
+        }
+    }
+    
+    # 2. Gemini Yapılandırılmış Çıktı
+    prompt = f"""
+    Aşağıda üretilmiş bir makalenin tam HTML metni ve markanın Kural Anayasası verilmiştir.
+    
+    Görevin: Bu makale için SEO başlığı, FAQ bloğu, Geo Reference (Citation) bloğu, 
+    Article & FAQPage Schema JSON-LD'si ve Görsel Prompt'ları üretmek.
+    
+    KURAL ANAYASASI:
+    {knowledge_base_str}
+    
+    MAKALE HTML METNİ:
+    {html_content[:5000]}... (kesilmiş olabilir)
+    
+    Lütfen belirtilen şemaya (ArticleComponentsResponse) tam uyarak JSON çıktısı dön.
+    """
+    
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config={
+            "response_mime_type": "application/json",
+            "response_schema": ArticleComponentsResponse
+        }
+    )
+    
+    # 3. Webhook ile Next.js'e Yolla
+    nextjs_api_url = os.getenv("NEXTJS_INTERNAL_URL", "http://localhost:3000/api/internal/jobs")
+    auth_token = os.getenv("INTERNAL_SECRET_TOKEN")
+    
+    payload = {
+        "action": "production_complete",
+        "articleId": article_id,
+        "components": response.text,  # Zaten JSON string
+        "qualityGateResult": quality_gate_result
+    }
+    
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Content-Type": "application/json"
+    }
+    
+    res = requests.post(nextjs_api_url, json=payload, headers=headers)
+    if res.status_code == 200:
+        print(f"[{article_id}] Üretim başarıyla tamamlandı ve API'ye iletildi.")
+        return {"status": "success", "articleId": article_id}
     else:
         raise Exception(f"Webhook hatası: {res.text}")
+
+@app.task(name="tasks.publish_to_wordpress")
+def publish_to_wordpress(article_id: str, wp_payload: dict, connection_config: dict):
+    """
+    WP REST API payload'unu hedefe fırlatır veya loglar.
+    """
+    print(f"[{article_id}] WordPress Publish tetiklendi.")
+    
+    is_mock = os.getenv("WP_MOCK_MODE", "true").lower() == "true"
+    
+    if is_mock:
+        print("--- WP_MOCK_MODE AKTİF ---")
+        print(f"Hedef URL: {connection_config.get('url')}/wp-json/wp/v2/posts")
+        print(f"Kullanıcı/Auth: {connection_config.get('credentials')}")
+        print(f"Gövde (Payload):\n{wp_payload}")
+        print("--------------------------")
+        return {"status": "mock_success", "articleId": article_id, "mocked": True}
+    else:
+        # Gerçek REST API isteği
+        import base64
+        creds = connection_config.get("credentials")
+        encoded_creds = base64.b64encode(creds.encode('utf-8')).decode('utf-8')
+        
+        headers = {
+            "Authorization": f"Basic {encoded_creds}",
+            "Content-Type": "application/json"
+        }
+        
+        wp_url = f"{connection_config.get('url')}/wp-json/wp/v2/posts"
+        res = requests.post(wp_url, json=wp_payload, headers=headers)
+        
+        if res.status_code in [200, 201]:
+            print(f"[{article_id}] WordPress'e başarıyla gönderildi.")
+            return {"status": "success", "articleId": article_id, "wp_response": res.json()}
+        else:
+            raise Exception(f"WordPress API hatası ({res.status_code}): {res.text}")

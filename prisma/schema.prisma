@@ -209,6 +209,12 @@ model Article {
   featuredImage   Json?          // {url, alt, source}
   inlineImages    Json?          // Array of: {url, alt, source, position}
   
+  wpInstructions  Json? // { category: string, slug: string, tags: string[] }
+  faq             Json? // Array of { question: string, answer: string }
+  geoReference    Json? // { citationHtml: string, contextSummary: string }
+  schemaMarkup    Json? // JSON-LD string veya nesnesi (Article + FAQPage)
+  qualityGate     Json? // { passed: boolean, score: number, failures: string[], metrics: { wordCount: number, keywordDensity: number } }
+  
   state           ArticleState   @default(OUTLINE_DRAFT)
   
   cmsPostId       String?

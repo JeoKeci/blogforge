@@ -111,6 +111,10 @@ interface ActiveArticle {
     wordCount: number;
     htmlContent: string;
   }>;
+  qualityGate?: any;
+  faq?: any;
+  schemaMarkup?: any;
+  wpInstructions?: any;
   progress: {
     completed: number;
     total: number;
@@ -1081,6 +1085,34 @@ export default function TestPanelPage() {
                   Tümünü Otomatik Yaz
                 </button>
                 
+                {activeArticle?.state === 'PREVIEW_READY' && (
+                  <button
+                    className="btn btnPrimary btnMini"
+                    style={{ padding: '6px 12px', backgroundColor: 'var(--accent-indigo)' }}
+                    onClick={async () => {
+                      addLog('⏳ WordPress yayını başlatılıyor...', 'info');
+                      try {
+                        const res = await fetch('/api/test-panel/publish-wp', {
+                          method: 'POST',
+                          body: JSON.stringify({ articleId: activeArticle.id })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                          addLog('✅ ' + data.message, 'success');
+                          fetchStatus();
+                        } else {
+                          addLog('❌ WP Publish Hatası: ' + data.error, 'error');
+                        }
+                      } catch (err: any) {
+                        addLog('❌ WP Publish Exception: ' + err.message, 'error');
+                      }
+                    }}
+                    disabled={loading !== null}
+                  >
+                    🚀 WordPress'e Taslak Olarak Gönder (Phase 1.8)
+                  </button>
+                )}
+                
                 {/* Auto Mode Switch */}
                 <button
                   className="btn btnOutline btnMini"
@@ -1126,6 +1158,51 @@ export default function TestPanelPage() {
                   className="articleContent"
                   dangerouslySetInnerHTML={{ __html: activeArticle.htmlContent }}
                 />
+
+                {/* Phase 1.8 Structured Outputs */}
+                {activeArticle.qualityGate && (
+                  <div style={{ marginTop: 24, padding: 16, backgroundColor: activeArticle.qualityGate.passed ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)', border: `1px solid ${activeArticle.qualityGate.passed ? 'var(--accent-emerald)' : 'var(--accent-rose)'}`, borderRadius: 8 }}>
+                    <h4 style={{ margin: '0 0 12px 0', color: activeArticle.qualityGate.passed ? 'var(--accent-emerald)' : 'var(--accent-rose)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      📊 Kalite Kapısı Denetim Sonuçları (Quality Gate)
+                    </h4>
+                    <div style={{ fontSize: 13, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      <div><strong>Skor:</strong> {activeArticle.qualityGate.score}/100</div>
+                      <div><strong>Kelime:</strong> {activeArticle.qualityGate.metrics?.wordCount}</div>
+                      <div><strong>Anahtar Kelime Yoğunluğu:</strong> %{activeArticle.qualityGate.metrics?.keywordDensity}</div>
+                    </div>
+                    {activeArticle.qualityGate.failures && activeArticle.qualityGate.failures.length > 0 && (
+                      <div style={{ marginTop: 12, padding: 8, backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 4, color: 'var(--accent-rose)', fontSize: 13 }}>
+                        <strong>İhlaller:</strong>
+                        <ul style={{ margin: '4px 0 0 16px' }}>
+                          {activeArticle.qualityGate.failures.map((f: string, i: number) => <li key={i}>{f}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeArticle.faq && (
+                  <div style={{ marginTop: 24 }}>
+                    <h4 style={{ margin: '0 0 12px 0' }}>❓ Sıkça Sorulan Sorular (FAQ)</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {activeArticle.faq.map((item: any, i: number) => (
+                        <div key={i} style={{ padding: 12, backgroundColor: 'var(--surface-50)', border: '1px solid var(--border-subtle)', borderRadius: 6 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Q: {item.question}</div>
+                          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>A: {item.answer}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {activeArticle.schemaMarkup && (
+                  <div style={{ marginTop: 24 }}>
+                    <h4 style={{ margin: '0 0 12px 0' }}>🛠️ JSON-LD Schema Markup</h4>
+                    <pre style={{ padding: 12, backgroundColor: 'var(--surface-50)', border: '1px solid var(--border-subtle)', borderRadius: 6, fontSize: 11, overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
+                      {typeof activeArticle.schemaMarkup === 'string' ? activeArticle.schemaMarkup : JSON.stringify(activeArticle.schemaMarkup, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </>
             ) : hasArticle ? (
               <div className="previewEmpty">

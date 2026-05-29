@@ -18,47 +18,55 @@ export async function POST(request: Request) {
       const articleId = 'test-article-id';
 
       // Clean existing test data (reverse FK order)
-      await prisma.articleSection.deleteMany({ where: { articleId } });
-      await prisma.articleVersion.deleteMany({ where: { articleId } });
-      await prisma.article.deleteMany({ where: { id: articleId } });
-      await prisma.articlePlan.deleteMany({ where: { id: articlePlanId } });
-      await prisma.contentPlan.deleteMany({ where: { id: contentPlanId } });
-      await prisma.contentSource.deleteMany({ where: { projectId } });
-      await prisma.strategyRevision.deleteMany({ where: { strategy: { projectId } } });
-      await prisma.strategy.deleteMany({ where: { projectId } });
-      await prisma.siteAudit.deleteMany({ where: { projectId } });
-      await prisma.competitor.deleteMany({ where: { projectId } });
-      await prisma.project.deleteMany({ where: { id: projectId } });
-      await prisma.user.deleteMany({ where: { id: userId } });
+      await prisma.articleSection.deleteMany();
+      await prisma.articleVersion.deleteMany();
+      await prisma.article.deleteMany();
+      await prisma.articlePlan.deleteMany();
+      await prisma.contentPlan.deleteMany();
+      await prisma.strategyRevision.deleteMany();
+      await prisma.strategy.deleteMany();
+      await prisma.competitor.deleteMany();
+      await prisma.siteAudit.deleteMany();
+      await prisma.contentSource.deleteMany();
+      await prisma.contentRule.deleteMany();
+      await prisma.contentPillar.deleteMany();
+      await prisma.outboundLink.deleteMany();
+      await prisma.knowledgeBase.deleteMany();
+      await prisma.project.deleteMany();
+      await prisma.membership.deleteMany();
+      await prisma.organization.deleteMany();
+      await prisma.user.deleteMany();
 
-      // Seed fresh data
-      await prisma.user.create({
-        data: { id: userId, email: 'test@example.com', name: 'Test User', createdAt: now, updatedAt: now },
-      });
+      // Seed fresh data using atomic transaction
+      await prisma.$transaction(async (tx) => {
+        // 1. User
+        await tx.user.create({
+          data: { id: userId, email: 'test@example.com', name: 'Test User', createdAt: now, updatedAt: now },
+        });
 
-      await prisma.project.create({
-        data: { id: projectId, userId, name: 'Test Project', siteUrl: 'https://example.com', state: 'CREATED', createdAt: now, updatedAt: now },
-      });
+        // 2. Organization
+        const orgId = 'test-org-id';
+        await tx.organization.create({
+          data: { id: orgId, name: 'Kişisel Organizasyon', createdAt: now, updatedAt: now },
+        });
 
-      // Seed default footprint sources for Phase 1.5
-      await prisma.contentSource.create({
-        data: {
-          projectId,
-          type: 'WEBSITE',
-          url: 'https://geocenter.com',
-          displayName: 'GeoCenter Blog',
-          status: 'PENDING'
-        }
-      });
+        // 3. Membership
+        await tx.membership.create({
+          data: { userId, organizationId: orgId, role: 'OWNER', createdAt: now },
+        });
 
-      await prisma.contentSource.create({
-        data: {
-          projectId,
-          type: 'YOUTUBE',
-          identifier: '@GeocKece',
-          displayName: '@GeocKece Kanalı',
-          status: 'PENDING'
-        }
+        // 4. Test Project
+        await tx.project.create({
+          data: { id: projectId, organizationId: orgId, name: 'Test Project', siteUrl: 'https://example.com', state: 'CREATED', createdAt: now, updatedAt: now },
+        });
+
+        // 5. Default Sources
+        await tx.contentSource.create({
+          data: { projectId, type: 'WEBSITE', url: 'https://geocenter.com', displayName: 'GeoCenter Blog', status: 'PENDING' }
+        });
+        await tx.contentSource.create({
+          data: { projectId, type: 'YOUTUBE', identifier: '@GeocKece', displayName: '@GeocKece Kanalı', status: 'PENDING' }
+        });
       });
 
       await prisma.contentPlan.create({

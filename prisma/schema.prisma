@@ -12,16 +12,16 @@ model User {
   email         String          @unique
   name          String?
   password      String?         // Hashed password
-  projects      Project[]
-  cmsConnections CMSConnection[]
+  memberships   Membership[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 }
 
 model Project {
   id            String        @id @default(cuid())
-  userId        String
-  user          User          @relation(fields: [userId], references: [id])
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  knowledgeBase  KnowledgeBase?
   name          String
   siteUrl       String
   state         ProjectState  @default(CREATED)
@@ -252,8 +252,8 @@ model ArticleSection {
 
 model CMSConnection {
   id           String    @id @default(cuid())
-  userId       String
-  user         User      @relation(fields: [userId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
   
   type         String    // "wordpress", "webflow", "ghost"
   name         String
@@ -278,4 +278,101 @@ model ContentSource {
   errorMessage  String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+model Organization {
+  id             String          @id @default(cuid())
+  name           String
+  members        Membership[]
+  projects       Project[]
+  cmsConnections CMSConnection[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           MemberRole   @default(OWNER)
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model KnowledgeBase {
+  id                  String          @id @default(cuid())
+  projectId           String          @unique
+  project             Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  verifiedFacts       Json
+  brandEntities       Json
+  writingInstructions Json
+  generatedChecklist  Json
+  status              KBStatus        @default(DRAFT)
+  rules               ContentRule[]
+  pillars             ContentPillar[]
+  outboundLinks       OutboundLink[]
+  approvedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+}
+
+enum KBStatus {
+  DRAFT
+  APPROVED
+  REVISION
+}
+
+model ContentRule {
+  id              String        @id @default(cuid())
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  type            RuleType
+  value           String
+  reason          String?
+  evidence        Json?
+  isActive        Boolean       @default(true)
+  origin          RuleOrigin    @default(AI_DERIVED)
+  createdAt       DateTime      @default(now())
+}
+
+enum RuleType {
+  FORBIDDEN_PHRASE
+  FACT_CORRECTION
+  REQUIRED
+  STYLE
+}
+
+enum RuleOrigin {
+  AI_DERIVED
+  USER_ADDED
+  USER_OVERRIDE
+}
+
+model ContentPillar {
+  id              String        @id @default(cuid())
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  name            String
+  scope           String
+  colorCode       String?
+  createdAt       DateTime      @default(now())
+}
+
+model OutboundLink {
+  id              String        @id @default(cuid())
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  url             String
+  title           String
+  usageArea       String?
+  createdAt       DateTime      @default(now())
 }

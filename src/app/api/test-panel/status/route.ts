@@ -14,6 +14,13 @@ export async function GET(request: Request) {
       where: { id: TEST_PROJECT_ID },
       include: {
         siteAudit: true,
+        knowledgeBase: {
+          include: {
+            rules: true,
+            pillars: true,
+            outboundLinks: true
+          }
+        }
       }
     });
 
@@ -70,6 +77,17 @@ export async function GET(request: Request) {
           auditMatrix: project.siteAudit.auditMatrix,
           actionPlan: project.siteAudit.actionPlan,
         } : null,
+        knowledgeBase: project.knowledgeBase ? {
+          id: project.knowledgeBase.id,
+          status: project.knowledgeBase.status,
+          verifiedFacts: project.knowledgeBase.verifiedFacts,
+          brandEntities: project.knowledgeBase.brandEntities,
+          writingInstructions: project.knowledgeBase.writingInstructions,
+          generatedChecklist: project.knowledgeBase.generatedChecklist,
+          rules: project.knowledgeBase.rules,
+          pillars: project.knowledgeBase.pillars,
+          outboundLinks: project.knowledgeBase.outboundLinks,
+        } : null
       },
       sources: sources.map(s => ({
         id: s.id,

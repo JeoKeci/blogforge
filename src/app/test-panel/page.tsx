@@ -46,12 +46,47 @@ interface SiteAuditData {
   actionPlan: string[] | null;
 }
 
+interface KBContentRule {
+  id: string;
+  type: 'FORBIDDEN_PHRASE' | 'FACT_CORRECTION' | 'REQUIRED' | 'STYLE';
+  value: string;
+  reason: string | null;
+  isActive: boolean;
+  origin: 'AI_DERIVED' | 'USER_ADDED' | 'USER_OVERRIDE';
+}
+
+interface KBContentPillar {
+  id: string;
+  name: string;
+  scope: string;
+}
+
+interface KBOutboundLink {
+  id: string;
+  url: string;
+  title: string;
+  usageArea: string | null;
+}
+
+interface KnowledgeBaseData {
+  id: string;
+  status: 'DRAFT' | 'APPROVED' | 'REVISION';
+  verifiedFacts: any;
+  brandEntities: any;
+  writingInstructions: any;
+  generatedChecklist: any;
+  rules: KBContentRule[];
+  pillars: KBContentPillar[];
+  outboundLinks: KBOutboundLink[];
+}
+
 interface Project {
   id: string;
   name: string;
   state: string;
   siteUrl: string;
   siteAudit?: SiteAuditData | null;
+  knowledgeBase?: KnowledgeBaseData | null;
 }
 
 interface ArticleInfo {
@@ -326,6 +361,72 @@ export default function TestPanelPage() {
     setLoading(null);
   }
 
+  async function handleToggleRule(ruleId: string, currentStatus: boolean) {
+    try {
+      const res = await fetch('/api/test-panel/knowledge-base/toggle-rule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ruleId, isActive: !currentStatus })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog(`✅ Kural durumu güncellendi.`, 'success');
+        await fetchStatus();
+      } else {
+        addLog(`❌ Kural güncellenemedi: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Kural güncellenemedi: ${e.message}`, 'error');
+    }
+  }
+
+  async function handleApproveKB() {
+    if (!confirm('Tüm kuralları onaylıyor musunuz? (Bu işlemden sonra strateji üretilecektir.)')) return;
+    setLoading('approveKB');
+    addLog('🔄 Anayasa onaylanıyor...', 'info');
+    try {
+      const res = await fetch('/api/test-panel/knowledge-base/approve', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog('✅ Kural Anayasası başarıyla onaylandı ve kilitlendi!', 'success');
+        await fetchStatus();
+      } else {
+        addLog(`❌ Onay hatası: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Onay hatası: ${e.message}`, 'error');
+    }
+    setLoading(null);
+  }
+
+  async function handleGenerateStrategy() {
+    setLoading('generateStrategy');
+    addLog('🔄 İçerik stratejisi ve planı üretiliyor (Faz 1.7)...', 'info');
+    try {
+      const res = await fetch('/api/test-panel/generate-strategy', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        addLog('✅ Birleşik içerik stratejisi ve makale taslakları başarıyla oluşturuldu!', 'success');
+        const firstNewArticle = data.articles?.[0]?.article;
+        if (firstNewArticle) {
+          setSelectedArticleId(firstNewArticle.id);
+          await fetchStatus(firstNewArticle.id);
+        } else {
+          await fetchStatus();
+        }
+      } else {
+        addLog(`❌ Strateji Üretim Hatası: ${data.error}`, 'error');
+      }
+    } catch (e: any) {
+      addLog(`❌ Strateji Üretim Hatası: ${e.message}`, 'error');
+    }
+    setLoading(null);
+  }
+
   async function triggerNext(isAutoCall = false) {
     if (!activeArticle) {
       addLog('❌ Aktif seçili makale yok.', 'error');
@@ -454,6 +555,20 @@ export default function TestPanelPage() {
                 >
                   <span className="btnIcon">🔄</span>
                   Durumu Yenile
+                </button>
+
+                <button
+                  className="btn btnPrimary"
+                  onClick={handleGenerateStrategy}
+                  disabled={loading !== null || project?.knowledgeBase?.status !== 'APPROVED'}
+                  style={{
+                    marginTop: '8px',
+                    width: '100%',
+                    opacity: project?.knowledgeBase?.status === 'APPROVED' ? 1 : 0.5
+                  }}
+                >
+                  {loading === 'generateStrategy' ? <span className="spinner" /> : <span className="btnIcon">🎯</span>}
+                  {project?.knowledgeBase?.status === 'APPROVED' ? 'Strateji & İçerik Planı Üret (Faz 1.7)' : 'Strateji Üret (Anayasa Onayı Bekleniyor)'}
                 </button>
               </div>
             </div>
@@ -688,6 +803,107 @@ export default function TestPanelPage() {
                   <span className="auditPendingIcon">⏳</span>
                   <span>Analiz bekleniyor. Kaynakları analiz ettikten sonra sağlık raporu burada görünecektir.</span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Knowledge Base (Constitution) Card ─── */}
+          {project?.knowledgeBase && (
+            <div className="card">
+              <div className="cardHeader">
+                <span className="cardTitle">📜 Kural Anayasası & Bilgi Tabanı</span>
+                <span className={`kbStatusBadge ${project.knowledgeBase.status === 'DRAFT' ? 'kbDraft' : 'kbApproved'}`}>
+                  {project.knowledgeBase.status}
+                </span>
+              </div>
+              <div className="cardBody">
+                {/* Verified Facts */}
+                {project.knowledgeBase.verifiedFacts && project.knowledgeBase.verifiedFacts.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Doğrulanmış Teknik Veriler (Facts)</div>
+                    <div className="kbTagGrid">
+                      {(project.knowledgeBase.verifiedFacts as any[]).map((fact, idx) => (
+                        <span key={idx} className="kbTag">
+                          <span className="kbTagKey">{fact.key}:</span> {fact.value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Brand Entities */}
+                {project.knowledgeBase.brandEntities && project.knowledgeBase.brandEntities.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Marka Varlıkları (Sertifika, Kurum vb.)</div>
+                    <div className="kbTagGrid">
+                      {(project.knowledgeBase.brandEntities as any[]).map((entity, idx) => (
+                        <span key={idx} className="kbTag">
+                          <span className="kbTagKey">{entity.category}:</span> {entity.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Content Rules */}
+                {project.knowledgeBase.rules && project.knowledgeBase.rules.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>İçerik Kalite Kuralları (Content Rules)</div>
+                    <div>
+                      {project.knowledgeBase.rules.map(rule => (
+                        <div key={rule.id} className="ruleCardRow" style={{ opacity: rule.isActive ? 1 : 0.4 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                              <span className={`ruleTypeBadge ${
+                                rule.type === 'FORBIDDEN_PHRASE' ? 'typeForbidden' :
+                                rule.type === 'FACT_CORRECTION' ? 'typeFact' :
+                                rule.type === 'REQUIRED' ? 'typeRequired' : ''
+                              }`}>
+                                {rule.type}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 13, textDecoration: rule.isActive ? 'none' : 'line-through', color: 'var(--text-primary)' }}>
+                              {rule.value}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                              <strong>Neden:</strong> {rule.reason}
+                            </div>
+                          </div>
+                          <div>
+                            <button
+                              className="ruleToggleButton"
+                              onClick={() => handleToggleRule(rule.id, rule.isActive)}
+                              disabled={project.knowledgeBase!.status === 'APPROVED'}
+                            >
+                              {rule.isActive ? 'Pasife Al' : 'Aktifleştir'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Writing Instructions */}
+                {project.knowledgeBase.writingInstructions && (
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 4, marginBottom: 12 }}>
+                    <strong>Genel Talimatlar:</strong> {JSON.stringify(project.knowledgeBase.writingInstructions)}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                {project.knowledgeBase.status === 'DRAFT' && (
+                  <div style={{ marginTop: 16 }}>
+                    <button
+                      className="btn btnPrimary"
+                      style={{ width: '100%', justifyContent: 'center' }}
+                      onClick={handleApproveKB}
+                      disabled={loading === 'approveKB'}
+                    >
+                      {loading === 'approveKB' ? <span className="spinner" /> : '🔒 Anayasayı Onayla ve Kilitle'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -77,8 +77,10 @@ graph TD
 
 "Geleceği düşünerek kurşungeçirmez mimariyi tasarla, bugünü yönetmek için en yalın halden başla." Veri tabanı şeması ve klasör yapısı Day 1'de **Faz 3 (Tam Kurşungeçirmezlik)** hedeflenerek kurulur; ancak ilk gün kod karmaşasında boğulmamak için kurallar ve kalkanlar aşamalı olarak devreye alınır.
 
-| Kural / Modül | Faz 1: Çekirdek İskelet (MVP) | Faz 2: SaaS & Güvenlik | Faz 3: Tam Kurşungeçirmezlik |
+| Kural / Modül | Faz 1: Çekirdek İskelet | Faz 1.5: Multi-Source & Audit | Faz 2: SaaS & Güvenlik | Faz 3: Tam Kurşungeçirmezlik |
 | :--- | :--- | :--- | :--- |
+| **Analiz & Denetim** | 100 Puanlık Skor Matrisi | Site Audit Otomasyonu | - |
+| **Kaynak Yönetimi**| Çoklu Kaynak (Web, YT, IG)| - | - |
 | **Yazım Modeli** | Bölüm Bazlı (Section-by-Section) | Gelişmiş Hafıza Yönetimi | - |
 | **Hafıza (Context)** | Statik Kurallar + Son Bölüm | Rolling Context Özetleme | - |
 | **Kuyruk / Worker** | Next.js + Python (Celery) | Çoklu Eşzamanlı İşçiler | - |
@@ -93,7 +95,290 @@ graph TD
 
 ## 🗄️ Database Şeması (Prisma Schema - Verbatim)
 
-Aşağıdaki şema, multi-tenant SaaS yapısını destekleyecek `User`, `Project`, `CMSConnection` yapılarını ve checkpointing destekli bölüm bazlı üretim yapan `ArticleSection` tablosunu içerir. `prisma/schema.prisma` olarak doğrudan kullanılabilir.
+Aşağıdaki şema, multi-tenant SaaS yapısını destekleyecek `User`, `Project`, `CMSConnection` yapılarını ve checkpointing destekli bölüm bazlı üretim yapan `ArticleSection` tablosunu içerir. `prisma
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String          @id @default(cuid())
+  email         String          @unique
+  name          String?
+  password      String?         // Hashed password
+  projects      Project[]
+  cmsConnections CMSConnection[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model Project {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  name          String
+  siteUrl       String
+  state         ProjectState  @default(CREATED)
+  
+  siteAudit     SiteAudit?
+  sources       ContentSource[]
+  competitors   Competitor[]
+  strategy      Strategy?
+  contentPlan   ContentPlan?
+  articles      Article[]
+  
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+enum ProjectState {
+  CREATED
+  SOURCES_ANALYZING
+  SOURCES_ANALYZED
+  SITE_AUDIT_RUNNING
+  SITE_AUDIT_COMPLETE
+  SITE_AUDIT_APPROVED
+  COMPETITORS_DISCOVERING
+  COMPETITORS_DISCOVERED
+  COMPETITORS_APPROVED
+  COMPETITOR_ANALYSIS_RUNNING
+  COMPETITOR_ANALYSIS_COMPLETE
+  STRATEGY_GENERATING
+  STRATEGY_REVIEW
+  STRATEGY_REVISION
+  PLAN_APPROVED
+  CONTENT_PRODUCTION
+}
+
+model SiteAudit {
+  id                 String   @id @default(cuid())
+  projectId          String   @unique
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  performanceScore   Float?
+  seoScore           Float?
+  accessibilityScore Float?
+  mobileScore        Float?
+  
+  existingPages      Json     // Array of: {url, title, h1, wordCount, keywords}
+  existingKeywords   Json     // Array of: {keyword, position, url}
+  
+  domain             String
+  cms                String?  // e.g. "wordpress", "shopify"
+  language           String?
+  region             String?  // GEO target region (e.g. "TR")
+  brandInfo          Json?    // {industry, targetAudience, toneOfVoice}
+  auditMatrix        Json?    // 100-point audit: {totalScore, breakdown: {metadata, hierarchy, depth, geoEntity}}
+  actionPlan         Json?    // AI-generated remediation steps: string[]
+  
+  rawData            Json?
+  approvedAt         DateTime?
+  createdAt          DateTime @default(now())
+}
+
+model Competitor {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  siteUrl          String
+  domain           String
+  source           String   // "serp", "user_input", "content_similarity"
+  
+  domainRating     Float?
+  organicTraffic   Int?
+  totalKeywords    Int?
+  topKeywords      Json?     // Array of: {keyword, position, volume}
+  contentGaps      Json?     // Keywords they have but we lack
+  topContent       Json?     // Array of: {url, title, backlinks, traffic}
+  publishFrequency String?  // "daily", "weekly", "monthly"
+  
+  analyzed         Boolean  @default(false)
+  approvedAt       DateTime?
+  createdAt        DateTime @default(now())
+}
+
+model Strategy {
+  id             String             @id @default(cuid())
+  projectId      String             @unique
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  summary        String
+  targetKeywords Json               // Keyword clusters
+  contentPillars Json               // Content silos/categories
+  geoTargets     Json               // GEO target specifications
+  contentMix     Json               // {informational: 40, transactional: 30, local: 30}
+  monthlyTarget  Int
+  
+  revisions      StrategyRevision[]
+  version        Int                @default(1)
+  approvedAt     DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+model StrategyRevision {
+  id           String   @id @default(cuid())
+  strategyId   String
+  strategy     Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  
+  userFeedback String
+  changes      String
+  version      Int
+  createdAt    DateTime @default(now())
+}
+
+model ContentPlan {
+  id            String   @id @default(cuid())
+  projectId     String   @unique
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  articles      ArticlePlan[]
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+}
+
+model ArticlePlan {
+  id               String   @id @default(cuid())
+  contentPlanId    String
+  contentPlan      ContentPlan @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
+  
+  order            Int
+  title            String
+  primaryKeyword   String
+  secondaryKeywords Json
+  searchIntent     String
+  contentType      String    // "how-to", "listicle", "guide", "comparison", "local"
+  targetWordCount  Int
+  priority         String    // "quick-win", "medium-term", "long-term"
+  geoTarget        String?
+  outline          Json?     // Dynamic outline array
+  
+  article          Article?
+  status           String    @default("planned") // planned, in_progress, produced, published
+  createdAt        DateTime  @default(now())
+}
+
+model Article {
+  id              String         @id @default(cuid())
+  projectId       String
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  articlePlanId   String?        @unique
+  articlePlan     ArticlePlan?   @relation(fields: [articlePlanId], references: [id])
+  
+  title           String
+  slug            String
+  metaDescription String
+  htmlContent     String
+  markdownContent String
+  excerpt         String?
+  
+  focusKeyword    String
+  seoScore        Float?
+  readabilityScore Float?
+  wordCount       Int
+  
+  featuredImage   Json?          // {url, alt, source}
+  inlineImages    Json?          // Array of: {url, alt, source, position}
+  
+  state           ArticleState   @default(OUTLINE_DRAFT)
+  
+  cmsPostId       String?
+  cmsPostUrl      String?
+  publishedAt     DateTime?
+  
+  outlineApprovedAt DateTime?
+  seoAuditPassedAt  DateTime?
+  userApprovedAt    DateTime?
+  
+  versions        ArticleVersion[]
+  sections        ArticleSection[]
+  currentVersion  Int            @default(1)
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+enum ArticleState {
+  OUTLINE_DRAFT
+  OUTLINE_APPROVED
+  WRITING
+  WRITTEN
+  SEO_AUDIT
+  SEO_AUDIT_PASSED
+  IMAGES_GENERATING
+  PREVIEW_READY
+  USER_APPROVED
+  PUBLISHING
+  PUBLISHED
+}
+
+model ArticleVersion {
+  id          String   @id @default(cuid())
+  articleId   String
+  article     Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  version     Int
+  content     String
+  changeNote  String?
+  createdAt   DateTime @default(now())
+}
+
+model ArticleSection {
+  id              String   @id @default(cuid())
+  articleId       String
+  article         Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  
+  headingTitle    String
+  headingLevel    Int
+  order           Int      // Section sequence number for recovery
+  
+  htmlContent     String
+  markdownContent String
+  wordCount       Int
+  
+  sources         Json?    // Sources / references used: [{title, url}]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([articleId, order])
+}
+
+model CMSConnection {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  
+  type         String    // "wordpress", "webflow", "ghost"
+  name         String
+  siteUrl      String
+  credentials  String    /// @encrypted
+  isActive     Boolean   @default(true)
+  lastTestedAt DateTime?
+  
+  createdAt    DateTime  @default(now())
+}
+
+model ContentSource {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type          String   // "WEBSITE", "YOUTUBE", "INSTAGRAM", "CUSTOM"
+  url           String?
+  identifier    String?  // @handle, username, etc.
+  displayName   String
+  status        String   @default("PENDING") // PENDING, FETCHING, ANALYZED, FAILED
+  extractedData Json?    // JSON with tone, audience, keywords, topics, recentItems
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+` olarak doğrudan kullanılabilir.
 
 ```prisma
 datasource db {

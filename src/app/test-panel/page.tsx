@@ -86,6 +86,7 @@ interface Project {
   state: string;
   siteUrl: string;
   siteAudit?: SiteAuditData | null;
+  lastError?: string | null;
   knowledgeBase?: KnowledgeBaseData | null;
   contentPlan?: any;
 }
@@ -152,6 +153,7 @@ export default function TestPanelPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [polling, setPolling] = useState(false);
   const [workerOnline, setWorkerOnline] = useState(false);
+  const [viewStep, setViewStep] = useState<number | null>(null);
   
   // Form State for new source
   const [showAddForm, setShowAddForm] = useState(false);
@@ -270,6 +272,7 @@ export default function TestPanelPage() {
   // ─── Actions ───
 
   async function handleSeed() {
+    if (!confirm('Tüm test verileri silinecektir. Emin misiniz?')) return;
     setLoading('seed');
     addLog('🔄 Veritabanı sıfırlanıp test verileri ve varsayılan kaynaklar kuruluyor...', 'info');
     try {
@@ -587,816 +590,401 @@ export default function TestPanelPage() {
   const isDone = activeArticle?.state === 'PREVIEW_READY';
   const hasArticle = statusExists && activeArticle;
 
+  // Stepper logic
+  const STEPPER_STAGES = [
+    { id: 'sources', label: 'Kaynaklar', states: ['CREATED', 'FAILED'] },
+    { id: 'audit', label: 'Audit & Analiz', states: ['SOURCES_ANALYZING', 'SITE_AUDIT_RUNNING', 'SOURCES_ANALYZED'] },
+    { id: 'kb', label: 'Bilgi Tabanı', states: ['KNOWLEDGE_BASE_REVIEW'] },
+    { id: 'strategy', label: 'Strateji', states: ['STRATEGY_GENERATING', 'STRATEGY_REVIEW'] },
+    { id: 'production', label: 'Üretim', states: ['CONTENT_PRODUCTION', 'PLAN_APPROVED', 'WRITING', 'PREVIEW_READY', 'PUBLISHED'] }
+  ];
+
+  const currentProjectState = project?.state || 'CREATED';
+  let activeStepIndex = 0;
+  if (['SOURCES_ANALYZING', 'SITE_AUDIT_RUNNING', 'SOURCES_ANALYZED'].includes(currentProjectState)) activeStepIndex = 1;
+  else if (['KNOWLEDGE_BASE_REVIEW'].includes(currentProjectState)) activeStepIndex = 2;
+  else if (['STRATEGY_GENERATING', 'STRATEGY_REVIEW'].includes(currentProjectState)) activeStepIndex = 3;
+  else if (['CONTENT_PRODUCTION', 'PLAN_APPROVED', 'WRITING', 'PREVIEW_READY', 'PUBLISHED'].includes(currentProjectState) || articles.length > 0) activeStepIndex = 4;
+  
+  const displayStep = viewStep !== null ? viewStep : activeStepIndex;
+
+
+
   return (
     <div className="testPanel">
-      {/* ─── Header ─── */}
-      <header className="header">
+      <header className="header" style={{ borderBottom: 'none' }}>
         <div className="headerLeft">
           <div className="logo">⚡</div>
           <div>
             <h1 className="headerTitle">BlogForge Test Panel</h1>
-            <p className="headerSubtitle">Faz 1.5 — Çoklu Kaynak Analizi & Birleşik Planlayıcı</p>
+            <p className="headerSubtitle">Adım Adım Üretim Takibi</p>
           </div>
         </div>
-        <div className={`headerBadge ${workerOnline ? 'badgeOnline' : 'badgeOffline'}`}>
-          <span className="badgeDot" />
-          {workerOnline ? 'Celery Worker Aktif' : 'Worker Bekliyor'}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btnDanger btnMini" onClick={handleSeed} disabled={loading !== null}>
+            {loading === 'seed' ? <span className="spinner" /> : '🔴 Seed & Sıfırla'}
+          </button>
+          <button className="btn btnOutline btnMini" onClick={() => fetchStatus()} disabled={loading !== null}>
+            🔄 Yenile
+          </button>
         </div>
       </header>
 
-      {/* ─── Grid ─── */}
-      <div className="gridLayout">
-        {/* ─── Left: Controls & Context ─── */}
-        <div className="controlPanel">
-          {/* Actions Card */}
-          <div className="card">
-            <div className="cardHeader">
-              <span className="cardTitle">🎮 Kontrol Merkezi</span>
-            </div>
-            <div className="cardBody">
-              <div className="actionGroup">
-                <button
-                  className="btn btnDanger"
-                  onClick={handleSeed}
-                  disabled={loading !== null}
-                >
-                  {loading === 'seed' ? <span className="spinner" /> : <span className="btnIcon">🗑️</span>}
-                  Seed & Sıfırla
-                </button>
+      {/* Persistent Status Bar */}
+      <div className="statusBar" style={{ display: 'flex', gap: 16, padding: '12px 24px', backgroundColor: 'var(--surface-50)', borderBottom: '1px solid var(--border-subtle)', alignItems: 'center' }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className={`statusDot ${workerOnline ? 'statusDotAnalyzed' : 'statusDotFailed'}`} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: workerOnline ? 'var(--accent-emerald)' : 'var(--text-secondary)' }}>
+              {workerOnline ? 'Celery Worker Online' : 'Worker Offline'}
+            </span>
+         </div>
+         <div style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
+            {loading && <span className="spinner" style={{ marginRight: 8, width: 14, height: 14 }} />}
+            {loading ? `Devam ediyor: ${loading}...` : 'Sistem Rölantide'}
+         </div>
+         {project?.lastError && (
+           <div style={{ color: 'var(--accent-rose)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(239,68,68,0.1)', padding: '6px 12px', borderRadius: 6, fontWeight: 500 }}>
+              <span>⚠️</span>
+              {project.lastError}
+           </div>
+         )}
+      </div>
 
-                <button
-                  className="btn btnPrimary"
-                  onClick={handleAnalyzeSources}
-                  disabled={loading !== null || sources.length === 0}
-                >
-                  {loading === 'analyze' ? <span className="spinner" /> : <span className="btnIcon">🧠</span>}
-                  Kaynakları Analiz Et & Planla
-                </button>
+      <div className="mainContainer" style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 16px' }}>
+         {/* Stepper */}
+         <div className="stepper" style={{ display: 'flex', marginBottom: 24, gap: 8, background: 'var(--surface-50)', padding: '8px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+            {STEPPER_STAGES.map((step, idx) => {
+               const isComplete = idx < activeStepIndex;
+               const isActive = idx === activeStepIndex;
+               const isViewing = idx === displayStep;
+               
+               let borderColor = 'transparent';
+               if (isActive) borderColor = 'var(--accent-indigo)';
+               else if (isComplete) borderColor = 'var(--accent-emerald)';
+               
+               return (
+                 <div key={step.id} onClick={() => setViewStep(idx)} style={{ flex: 1, padding: '12px 16px', cursor: 'pointer', borderBottom: `3px solid ${borderColor}`, background: isViewing ? 'var(--surface-100)' : 'transparent', transition: 'all 0.2s', borderRadius: '6px' }}>
+                   <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Adım {idx + 1}</div>
+                   <div style={{ fontSize: 14, fontWeight: isActive ? 600 : 500, color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)', marginTop: 4 }}>
+                     {isComplete ? '✓ ' : ''}{step.label}
+                   </div>
+                 </div>
+               )
+            })}
+         </div>
 
-                <button
-                  className="btn btnOutline"
-                  onClick={() => fetchStatus()}
-                  disabled={loading !== null}
-                >
-                  <span className="btnIcon">🔄</span>
-                  Durumu Yenile
-                </button>
+         {/* Step 1: Sources */}
+         {displayStep === 0 && (
+           <div className="stepContent">
+             <div className="card">
+               <div className="cardHeader">
+                 <span className="cardTitle">🌐 Dijital Ayak İzi Kaynakları</span>
+                 <button className="btn btnOutline btnMini" onClick={() => setShowAddForm(!showAddForm)}>
+                   {showAddForm ? 'Kapat' : 'Ekle'}
+                 </button>
+               </div>
+               <div className="cardBody">
+                 {sources.length === 0 ? (
+                   <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)' }}>
+                     Kaynak bulunamadı. Yeni bir websitesi veya YouTube kanalı ekleyin.
+                   </div>
+                 ) : (
+                   <div className="sourcesList">
+                     {sources.map((s) => (
+                       <div key={s.id} className="sourceItem" style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                         <div>
+                           <div style={{ fontWeight: 500 }}>{s.displayName}</div>
+                           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                             <span style={{ padding: '2px 6px', background: 'var(--surface-100)', borderRadius: 4, marginRight: 8 }}>{s.type}</span>
+                             {s.url || s.identifier}
+                           </div>
+                         </div>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                           <span style={{ fontSize: 12, color: s.status === 'ANALYZED' ? 'var(--accent-emerald)' : s.status === 'FAILED' ? 'var(--accent-rose)' : 'var(--text-secondary)' }}>
+                             {s.status}
+                           </span>
+                           <button className="btn btnOutline btnMini" onClick={() => handleDeleteSource(s.id, s.displayName)}>Sil</button>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                 )}
 
-                <button
-                  className="btn btnPrimary"
-                  onClick={handleGenerateStrategy}
-                  disabled={loading !== null || project?.knowledgeBase?.status !== 'APPROVED'}
-                  style={{
-                    marginTop: '8px',
-                    width: '100%',
-                    opacity: project?.knowledgeBase?.status === 'APPROVED' ? 1 : 0.5
-                  }}
-                >
-                  {loading === 'generateStrategy' ? <span className="spinner" /> : <span className="btnIcon">🎯</span>}
-                  {project?.knowledgeBase?.status === 'APPROVED' ? 'Strateji & İçerik Planı Üret (Faz 1.7)' : 'Strateji Üret (Anayasa Onayı Bekleniyor)'}
-                </button>
-                <button
-                  className="btn btnOutline"
-                  onClick={handleGapAnalysis}
-                  disabled={loading !== null || !project?.contentPlan}
-                  style={{ marginTop: '8px', width: '100%' }}
-                >
-                  {loading === 'gapAnalysis' ? <span className="spinner" /> : <span className="btnIcon">🕵️</span>}
-                  Rakipleri Tara ve Gap Analizi Çalıştır
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Strategy & Content Plan Tracker */}
-          <div className="card">
-            <div className="cardHeader">
-              <span className="cardTitle">🗺️ Strateji & Üretim Takvimi</span>
-              {strategy && <span className="badge badgeSuccess">Plan Devrede</span>}
-            </div>
-
-            {project?.contentPlan?.suggestedGaps && project.contentPlan.suggestedGaps.length > 0 && (
-              <div style={{ padding: '12px 16px', background: 'rgba(52, 211, 153, 0.1)', borderBottom: '1px solid #334155' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#34d399', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>🎯</span> Keşfedilen Kelime Fırsatları (Gap Analizi)
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {project.contentPlan.suggestedGaps.map((gap: any, index: number) => (
-                    <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(15, 23, 42, 0.5)', padding: '8px 12px', borderRadius: '4px' }}>
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: '500', color: '#f8fafc' }}>{gap.title}</div>
-                        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                          Odak: <strong style={{ color: '#38bdf8' }}>{gap.focusKeyword}</strong> • Tip: {gap.type === 'new_article' ? 'Yeni Makale' : 'LSI/Alt Başlık'}
-                        </div>
-                      </div>
-                      <button 
-                        className="btn btnPrimary btnMini" 
-                        onClick={() => handleApproveGap(gap)}
-                      >
-                        + Plana Ekle
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="cardBody" style={{ padding: 0 }}>
-              {/* Content plan tracker items will go here */}
-            </div>
-          </div>
-          {/* Footprint Sources Manager */}
-          <div className="card">
-            <div className="cardHeader">
-              <span className="cardTitle">🌐 Dijital Ayak İzi Kaynakları</span>
-              <button 
-                className="btn btnOutline btnMini"
-                onClick={() => setShowAddForm(!showAddForm)}
-              >
-                {showAddForm ? 'Kapat' : 'Ekle'}
-              </button>
-            </div>
-            <div className="cardBody">
-              {sources.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '10px 0', color: 'var(--text-muted)', fontSize: 13 }}>
-                  Kayıtlı dijital kaynak bulunamadı. "Seed & Sıfırla" yapabilir veya yeni kaynak ekleyebilirsiniz.
-                </div>
-              ) : (
-                <div className="sourcesList">
-                  {sources.map((s) => (
-                    <div key={s.id} className="sourceItem">
-                      <div className="sourceInfo">
-                        <span className="sourceTitle">{s.displayName}</span>
-                        <div className="sourceMeta">
-                          <span className="sourceTypeBadge">{s.type}</span>
-                          <span className="sourceStatus">
-                            <span className={`statusDot ${
-                              s.status === 'PENDING' ? 'statusDotPending' :
-                              s.status === 'FETCHING' ? 'statusDotFetching' :
-                              s.status === 'ANALYZED' ? 'statusDotAnalyzed' : 'statusDotFailed'
-                            }`} />
-                            {s.status === 'PENDING' && 'Bekliyor'}
-                            {s.status === 'FETCHING' && 'Kazınıyor'}
-                            {s.status === 'ANALYZED' && 'Analiz Edildi'}
-                            {s.status === 'FAILED' && 'Hata!'}
-                          </span>
-                        </div>
-                        {s.errorMessage && (
-                          <span style={{ fontSize: 10, color: 'var(--accent-rose)', marginTop: 4 }}>
-                            {s.errorMessage}
-                          </span>
+                 {showAddForm && (
+                    <form onSubmit={handleAddSource} style={{ marginTop: 16, padding: 16, background: 'var(--surface-50)', borderRadius: 8 }}>
+                      <h4 style={{ margin: '0 0 12px 0' }}>Yeni Kaynak Ekle</h4>
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        <select className="formSelect" value={newSourceType} onChange={(e) => setNewSourceType(e.target.value as any)} style={{ flex: 1 }}>
+                          <option value="WEBSITE">Web Sitesi</option>
+                          <option value="YOUTUBE">YouTube Kanalı</option>
+                        </select>
+                        <input type="text" className="formInput" placeholder="Görünüm Adı" value={newSourceDisplayName} onChange={(e) => setNewSourceDisplayName(e.target.value)} style={{ flex: 2 }} required />
+                        {newSourceType === 'WEBSITE' ? (
+                           <input type="text" className="formInput" placeholder="URL" value={newSourceUrl} onChange={(e) => setNewSourceUrl(e.target.value)} style={{ flex: 3 }} required />
+                        ) : (
+                           <input type="text" className="formInput" placeholder="Identifier (@handle)" value={newSourceIdentifier} onChange={(e) => setNewSourceIdentifier(e.target.value)} style={{ flex: 3 }} required />
                         )}
+                        <button type="submit" className="btn btnPrimary btnMini" disabled={loading === 'addSource'}>Kaydet</button>
                       </div>
-                      <div className="sourceActions">
-                        <button 
-                          className="btn btnOutline btnMini"
-                          style={{ padding: '2px 6px', color: 'var(--accent-rose)' }}
-                          onClick={() => handleDeleteSource(s.id, s.displayName)}
-                        >
-                          Sil
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    </form>
+                 )}
+
+                 <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+                   <button className="btn btnPrimary" onClick={handleAnalyzeSources} disabled={loading !== null || sources.length === 0}>
+                     {loading === 'analyze' ? <span className="spinner" /> : '🚀 Kaynakları Analiz Et'}
+                   </button>
+                 </div>
+               </div>
+             </div>
+           </div>
+         )}
+
+         {/* Step 2: Audit */}
+         {displayStep === 1 && (
+           <div className="stepContent">
+              {project?.siteAudit?.auditMatrix ? (() => {
+                 const audit = project.siteAudit!;
+                 const matrix = audit.auditMatrix! as any;
+                 const score = matrix.totalScore;
+                 const scoreClass = score >= 70 ? 'scoreHigh' : score >= 40 ? 'scoreMedium' : 'scoreLow';
+                 return (
+                   <div className="card auditCard">
+                     <div className="cardHeader">
+                       <span className="cardTitle">📊 Web Sitesi Sağlık Raporu</span>
+                       <span className={`auditScoreBadge ${scoreClass}`}>{score}/100</span>
+                     </div>
+                     <div className="cardBody">
+                        <div className="auditScoreBar"><div className="auditScoreTrack"><div className={`auditScoreFill ${scoreClass}`} style={{ width: `${score}%` }} /></div></div>
+                        <div style={{ marginTop: 16 }}>
+                          {audit.actionPlan && (audit.actionPlan as string[]).length > 0 && (
+                            <div className="actionPlanSection">
+                              <div className="actionPlanTitle">📋 Önerilen Acil Aksiyon Planı</div>
+                              {(audit.actionPlan as string[]).map((item, i) => (
+                                <div key={i} className="actionItem"><span className="actionCheckbox">☐</span><span>{item}</span></div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                     </div>
+                   </div>
+                 );
+              })() : (
+                 <div className="card"><div className="cardBody" style={{ textAlign: 'center', padding: 40 }}><span className="spinner" style={{ width: 24, height: 24, marginBottom: 16 }} /><div>Analiz devam ediyor veya henüz başlamadı...</div></div></div>
               )}
+           </div>
+         )}
 
-              {/* Add Source Form */}
-              {showAddForm && (
-                <form onSubmit={handleAddSource} className="addSourceForm">
-                  <span className="formTitle">Yeni Kaynak Ekle</span>
-                  <div className="formGrid">
-                    <select 
-                      className="formSelect"
-                      value={newSourceType}
-                      onChange={(e) => setNewSourceType(e.target.value as any)}
-                    >
-                      <option value="WEBSITE">Web Sitesi</option>
-                      <option value="YOUTUBE">YouTube Kanalı</option>
-                      <option value="INSTAGRAM">Instagram Sayfası</option>
-                      <option value="CUSTOM">Özel Metin / Rehber</option>
-                    </select>
-
-                    <input 
-                      type="text"
-                      className="formInput"
-                      placeholder="Görünüm Adı (örn: Kişisel Blog)"
-                      value={newSourceDisplayName}
-                      onChange={(e) => setNewSourceDisplayName(e.target.value)}
-                    />
-
-                    {newSourceType === 'WEBSITE' && (
-                      <input 
-                        type="text"
-                        className="formInput"
-                        placeholder="URL (örn: geocenter.com)"
-                        required
-                        value={newSourceUrl}
-                        onChange={(e) => setNewSourceUrl(e.target.value)}
-                      />
-                    )}
-
-                    {newSourceType === 'YOUTUBE' && (
-                      <input 
-                        type="text"
-                        className="formInput"
-                        placeholder="@kullaniciadi veya URL"
-                        required
-                        value={newSourceIdentifier}
-                        onChange={(e) => setNewSourceIdentifier(e.target.value)}
-                      />
-                    )}
-
-                    {newSourceType === 'INSTAGRAM' && (
-                      <>
-                        <input 
-                          type="text"
-                          className="formInput"
-                          placeholder="Instagram Kullanıcı Adı"
-                          required
-                          value={newSourceIdentifier}
-                          onChange={(e) => setNewSourceIdentifier(e.target.value)}
-                        />
-                        <textarea 
-                          className="formInput"
-                          placeholder="Instagram Bio ve son gönderileri buraya yapıştırın (Otomatik çekim limitli olduğu için)"
-                          rows={3}
-                          value={newSourceTextContent}
-                          onChange={(e) => setNewSourceTextContent(e.target.value)}
-                        />
-                      </>
-                    )}
-
-                    {newSourceType === 'CUSTOM' && (
-                      <textarea 
-                        className="formInput"
-                        placeholder="Marka hedefleri, tone of voice kuralları vb."
-                        required
-                        rows={4}
-                        value={newSourceTextContent}
-                        onChange={(e) => setNewSourceTextContent(e.target.value)}
-                      />
-                    )}
-
-                    <button 
-                      type="submit" 
-                      className="btn btnPrimary btnMini"
-                      disabled={loading === 'addSource'}
-                    >
-                      {loading === 'addSource' ? 'Ekleniyor...' : 'Kaydet'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
-
-          {/* ─── Audit Report Card ─── */}
-          {project?.siteAudit?.auditMatrix && (project.siteAudit.auditMatrix as any).breakdown ? (() => {
-            const audit = project.siteAudit!;
-            const matrix = audit.auditMatrix!;
-            const score = matrix.totalScore;
-            const scoreClass = score >= 70 ? 'scoreHigh' : score >= 40 ? 'scoreMedium' : 'scoreLow';
-
-            const columns: { key: keyof typeof matrix.breakdown; label: string; maxScore: number; icon: string }[] = [
-              { key: 'metadata', label: 'Metadata & SEO Sağlığı', maxScore: 20, icon: '🏷️' },
-              { key: 'hierarchy', label: 'Semantik Hiyerarşi', maxScore: 25, icon: '🏗️' },
-              { key: 'depth', label: 'İçerik Derinliği & Bilgi Kazancı', maxScore: 30, icon: '📚' },
-              { key: 'geoEntity', label: 'Varlık & GEO Hazırlığı', maxScore: 25, icon: '🌍' },
-            ];
-
-            return (
-              <div className="card auditCard">
-                <div className="cardHeader">
-                  <span className="cardTitle">📊 Web Sitesi Sağlık Raporu</span>
-                  <span className={`auditScoreBadge ${scoreClass}`}>
-                    {score}/100
-                  </span>
-                </div>
-                <div className="cardBody">
-                  {/* Score bar visualization */}
-                  <div className="auditScoreBar">
-                    <div className="auditScoreTrack">
-                      <div
-                        className={`auditScoreFill ${scoreClass}`}
-                        style={{ width: `${score}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 4-column breakdown */}
-                  {columns.map((col) => {
-                    const item = matrix.breakdown[col.key];
-                    return (
-                      <div key={col.key} className="auditSectionRow">
-                        <div className="auditSectionHeader">
-                          <span>{col.icon} {col.label}</span>
-                          <span className="auditSectionPoints">{item.score}/{col.maxScore}</span>
-                        </div>
-                        {item.good && (
-                          <div className="auditBullet">
-                            <span className="bulletGood">🟢</span>
-                            <span className="bulletGood">{item.good}</span>
-                          </div>
-                        )}
-                        {item.bad && (
-                          <div className="auditBullet">
-                            <span className="bulletBad">🔴</span>
-                            <span className="bulletBad">{item.bad}</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Action Plan */}
-                  {audit.actionPlan && audit.actionPlan.length > 0 && (
-                    <div className="actionPlanSection">
-                      <div className="actionPlanTitle">📋 Önerilen Acil Aksiyon Planı</div>
-                      {(audit.actionPlan as string[]).map((item, i) => (
-                        <div key={i} className="actionItem">
-                          <span className="actionCheckbox">☐</span>
-                          <span>{item}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })() : project && (
-            <div className="card">
-              <div className="cardHeader">
-                <span className="cardTitle">📊 Web Sitesi Sağlık Raporu</span>
-              </div>
-              <div className="cardBody">
-                <div className="auditPending">
-                  <span className="auditPendingIcon">⏳</span>
-                  <span>Analiz bekleniyor. Kaynakları analiz ettikten sonra sağlık raporu burada görünecektir.</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ─── Knowledge Base (Constitution) Card ─── */}
-          {project?.knowledgeBase && (
-            <div className="card">
-              <div className="cardHeader">
-                <span className="cardTitle">📜 Kural Anayasası & Bilgi Tabanı</span>
-                <span className={`kbStatusBadge ${project.knowledgeBase.status === 'DRAFT' ? 'kbDraft' : 'kbApproved'}`}>
-                  {project.knowledgeBase.status}
-                </span>
-              </div>
-              <div className="cardBody">
-                {/* Verified Facts */}
-                {project.knowledgeBase.verifiedFacts && project.knowledgeBase.verifiedFacts.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Doğrulanmış Teknik Veriler (Facts)</div>
-                    <div className="kbTagGrid">
-                      {(project.knowledgeBase.verifiedFacts as any[]).map((fact, idx) => (
-                        <span key={idx} className="kbTag">
-                          <span className="kbTagKey">{fact.key}:</span> {fact.value}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Brand Entities */}
-                {project.knowledgeBase.brandEntities && project.knowledgeBase.brandEntities.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Marka Varlıkları (Sertifika, Kurum vb.)</div>
-                    <div className="kbTagGrid">
-                      {(project.knowledgeBase.brandEntities as any[]).map((entity, idx) => (
-                        <span key={idx} className="kbTag">
-                          <span className="kbTagKey">{entity.category}:</span> {entity.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Content Rules */}
-                {project.knowledgeBase.rules && project.knowledgeBase.rules.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>İçerik Kalite Kuralları (Content Rules)</div>
-                    <div>
-                      {project.knowledgeBase.rules.map(rule => (
-                        <div key={rule.id} className="ruleCardRow" style={{ opacity: rule.isActive ? 1 : 0.4 }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                              <span className={`ruleTypeBadge ${
-                                rule.type === 'FORBIDDEN_PHRASE' ? 'typeForbidden' :
-                                rule.type === 'FACT_CORRECTION' ? 'typeFact' :
-                                rule.type === 'REQUIRED' ? 'typeRequired' : ''
-                              }`}>
-                                {rule.type}
-                              </span>
+         {/* Step 3: KB Review */}
+         {displayStep === 2 && (
+           <div className="stepContent">
+             {project?.knowledgeBase ? (
+               <div className="card">
+                 <div className="cardHeader">
+                   <span className="cardTitle">📜 Kural Anayasası Onayı</span>
+                   <span className={`kbStatusBadge ${project.knowledgeBase.status === 'DRAFT' ? 'kbDraft' : 'kbApproved'}`}>{project.knowledgeBase.status}</span>
+                 </div>
+                 <div className="cardBody">
+                    {project.knowledgeBase.rules && project.knowledgeBase.rules.length > 0 && (
+                      <div style={{ marginBottom: 24 }}>
+                        <h4 style={{ margin: '0 0 12px 0' }}>İçerik Kalite Kuralları</h4>
+                        {project.knowledgeBase.rules.map(rule => (
+                          <div key={rule.id} style={{ display: 'flex', justifyContent: 'space-between', padding: 12, background: 'var(--surface-50)', marginBottom: 8, borderRadius: 6, opacity: rule.isActive ? 1 : 0.5 }}>
+                            <div>
+                              <div style={{ fontWeight: 500, fontSize: 13 }}>{rule.value}</div>
+                              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{rule.type} • {rule.reason}</div>
                             </div>
-                            <div style={{ fontSize: 13, textDecoration: rule.isActive ? 'none' : 'line-through', color: 'var(--text-primary)' }}>
-                              {rule.value}
-                            </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                              <strong>Neden:</strong> {rule.reason}
-                            </div>
-                          </div>
-                          <div>
-                            <button
-                              className="ruleToggleButton"
-                              onClick={() => handleToggleRule(rule.id, rule.isActive)}
-                              disabled={project.knowledgeBase!.status === 'APPROVED'}
-                            >
-                              {rule.isActive ? 'Pasife Al' : 'Aktifleştir'}
+                            <button className="btn btnOutline btnMini" onClick={() => handleToggleRule(rule.id, rule.isActive)} disabled={project.knowledgeBase!.status === 'APPROVED'}>
+                              {rule.isActive ? 'Kapat' : 'Aç'}
                             </button>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {/* Writing Instructions */}
-                {project.knowledgeBase.writingInstructions && (
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', padding: 8, borderRadius: 4, marginBottom: 12 }}>
-                    <strong>Genel Talimatlar:</strong> {JSON.stringify(project.knowledgeBase.writingInstructions)}
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                {project.knowledgeBase.status === 'DRAFT' && (
-                  <div style={{ marginTop: 16 }}>
-                    <button
-                      className="btn btnPrimary"
-                      style={{ width: '100%', justifyContent: 'center' }}
-                      onClick={handleApproveKB}
-                      disabled={loading === 'approveKB'}
-                    >
-                      {loading === 'approveKB' ? <span className="spinner" /> : '🔒 Anayasayı Onayla ve Kilitle'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Unified Strategy Card */}
-          {strategy && (
-            <div className="card strategyCard">
-              <div className="cardHeader">
-                <span className="cardTitle">🧠 Birleşik İçerik Stratejisi</span>
-                <span className="stateBadge stateOutline" style={{ fontSize: 9 }}>
-                  v{strategy.version}
-                </span>
-              </div>
-              <div className="cardBody">
-                <p className="strategySummary">{strategy.summary}</p>
-                <div className="strategyGrid">
-                  <div className="strategyMetric">
-                    <span className="metricTitle">Kategoriler</span>
-                    <div className="pillContainer">
-                      {(strategy.contentPillars || []).map((p, i) => (
-                        <span key={i} className="strategyPill">{p}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="strategyMetric">
-                    <span className="metricTitle">Hedef Kitle</span>
-                    <div className="metricValue" style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                      {(strategy.geoTargets || []).join(', ')} odaklı kitle
-                    </div>
-                  </div>
-                </div>
-
-                <div className="strategyMetric">
-                  <span className="metricTitle">Anahtar Kelimeler (Clusters)</span>
-                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {(strategy.targetKeywords as any[] || []).slice(0, 3).map((item, i) => (
-                      <div key={i} style={{ fontSize: 11 }}>
-                        <strong style={{ color: 'var(--accent-indigo)' }}>{item.cluster}:</strong>{' '}
-                        <span style={{ color: 'var(--text-secondary)' }}>{(item.keywords || []).join(', ')}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Content Plan / Generated Articles list */}
-          {articles.length > 0 && (
-            <div className="card">
-              <div className="cardHeader">
-                <span className="cardTitle">📅 İçerik Planı (Makaleler)</span>
-              </div>
-              <div className="cardBody">
-                <div className="articleSelectionList">
-                  {articles.map((art: any) => (
-                    <div key={art.id} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <button
-                        className={`articleSelectBtn ${art.id === selectedArticleId ? 'articleSelectBtnActive' : ''}`}
-                        onClick={() => selectArticle(art.id)}
-                      >
-                        <div>
-                          <div className="articleBtnTitle">{art.title}</div>
-                          <div className="articleBtnMeta">
-                            Durum: {art.state === 'PREVIEW_READY' ? 'Tamamlandı' : 'Yazım Bekliyor'} | {art.wordCount} kelime
-                          </div>
-                        </div>
-                        {art.progress && (
-                          <span className="stateBadge stateOutline" style={{ fontSize: 10 }}>
-                            {art.progress.completed} / {art.progress.total}
-                          </span>
-                        )}
-                      </button>
-
-                      {art.outboundLinks && art.outboundLinks.length > 0 && (
-                        <div style={{ paddingLeft: '14px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                          {art.outboundLinks.map((link: any, idx: number) => (
-                            <div key={idx} style={{ marginTop: '2px' }}>
-                              🔗 Link verilecek makale: <span style={{color: 'var(--accent-indigo)', fontWeight: '600'}}>{link.targetSlug}</span> (Anchor: &apos;{link.anchorText}&apos;)
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Pipeline Stepper Card (Only for selected active article) */}
-          {hasArticle && activeArticle.articlePlan?.outline && (
-            <div className="card">
-              <div className="cardHeader">
-                <span className="cardTitle">📋 Bölüm Pipeline ({activeArticle.title.substring(0, 20)}...)</span>
-              </div>
-              <div className="cardBody">
-                <div className="sectionPipeline">
-                  {(activeArticle.articlePlan.outline as any[]).map((item, index) => {
-                    const stepStatus = getStepStatus(index);
-                    const section = activeArticle.sections?.find((s) => s.order === index + 1);
-                    return (
-                      <div key={index} className="sectionStep" style={{ display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <div className={`stepIndicator ${stepStatus === 'complete' ? 'stepComplete' : stepStatus === 'active' ? 'stepActive' : 'stepPending'}`}>
-                            {stepStatus === 'complete' ? '✓' : stepStatus === 'active' ? '⋯' : index + 1}
-                          </div>
-                          <div className="stepInfo" style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div className="stepTitle">{item.title}</div>
-                              <div className="stepMeta">
-                                {stepStatus === 'complete' && section
-                                  ? `${section.wordCount} kelime`
-                                  : stepStatus === 'active'
-                                    ? 'Yazılıyor...'
-                                    : 'Bekliyor'}
-                              </div>
-                            </div>
-                            {stepStatus === 'complete' && section && !isWriting && (
-                              <button 
-                                className="btn btnOutline btnMini" 
-                                style={{ padding: '4px 8px', fontSize: 11 }}
-                                onClick={() => setRewriteSectionId(rewriteSectionId === section.id ? null : section.id)}
-                              >
-                                🔄 Yeniden Yazdır
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {rewriteSectionId === section?.id && (
-                          <div style={{ marginTop: 8, padding: 8, backgroundColor: 'var(--surface-50)', borderRadius: 6, border: '1px solid var(--border-subtle)' }}>
-                            <textarea 
-                              className="input" 
-                              style={{ width: '100%', minHeight: 60, fontSize: 12, marginBottom: 8 }} 
-                              placeholder="Ne değiştirilsin? Örn: Bu paragrafı çok jenerik buldum, Janka değerlerine vurgu yap..."
-                              value={rewriteFeedback}
-                              onChange={(e) => setRewriteFeedback(e.target.value)}
-                            />
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                              <button className="btn btnOutline btnMini" onClick={() => setRewriteSectionId(null)}>İptal</button>
-                              <button className="btn btnPrimary btnMini" onClick={handleRewriteSubmit} disabled={!rewriteFeedback.trim()}>Gönder</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Log Card */}
-          <div className="card">
-            <div className="cardHeader">
-              <span className="cardTitle">📜 İşlem Logları</span>
-              <button
-                className="btn btnOutline btnMini"
-                onClick={() => setLogs([])}
-              >
-                Temizle
-              </button>
-            </div>
-            <div className="cardBody">
-              <div className="logContainer" ref={logContainerRef}>
-                {logs.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-muted)', fontSize: 12 }}>
-                    Henüz log yok.
-                  </div>
-                ) : (
-                  logs.map((log, i) => (
-                    <div key={i} className={`logEntry ${log.type === 'success' ? 'logSuccess' : log.type === 'error' ? 'logError' : 'logInfo'}`}>
-                      <span className="logTime">{log.time}</span>
-                      <span>{log.message}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ─── Right: Preview & Generation controls ─── */}
-        <div className="card previewPanel">
-          <div className="cardHeader">
-            <span className="cardTitle">👁️ İçerik Önizleme</span>
-            {hasArticle && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button
-                  className="btn btnPrimary btnMini"
-                  style={{ padding: '6px 12px' }}
-                  onClick={() => triggerNext(false)}
-                  disabled={loading !== null || isDone}
-                >
-                  Sıradaki Bölümü Yaz
-                </button>
-                <button
-                  className="btn btnSuccess btnMini"
-                  style={{ padding: '6px 12px' }}
-                  onClick={handleTriggerAll}
-                  disabled={loading !== null || isDone}
-                >
-                  Tümünü Otomatik Yaz
-                </button>
-                
-                {activeArticle?.state === 'PREVIEW_READY' && (
-                  <button
-                    className="btn btnPrimary btnMini"
-                    style={{ padding: '6px 12px', backgroundColor: 'var(--accent-indigo)' }}
-                    onClick={async () => {
-                      addLog('⏳ WordPress yayını başlatılıyor...', 'info');
-                      try {
-                        const res = await fetch('/api/test-panel/publish-wp', {
-                          method: 'POST',
-                          body: JSON.stringify({ articleId: activeArticle.id })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                          addLog('✅ ' + data.message, 'success');
-                          fetchStatus();
-                        } else {
-                          addLog('❌ WP Publish Hatası: ' + data.error, 'error');
-                        }
-                      } catch (err: any) {
-                        addLog('❌ WP Publish Exception: ' + err.message, 'error');
-                      }
-                    }}
-                    disabled={loading !== null}
-                  >
-                    🚀 WordPress'e Taslak Olarak Gönder (Phase 1.8)
-                  </button>
-                )}
-                
-                {/* Auto Mode Switch */}
-                <button
-                  className="btn btnOutline btnMini"
-                  style={{ padding: '6px 8px', display: 'flex', gap: 6 }}
-                  onClick={() => {
-                    setAutoMode(!autoMode);
-                    addLog(autoMode ? '⏸️ Otomatik mod kapatıldı.' : '▶️ Otomatik mod açıldı.', 'info');
-                  }}
-                >
-                  <span className={`statusDot ${autoMode ? 'statusDotAnalyzed' : 'statusDotPending'}`} />
-                  Oto
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="cardBody" style={{ opacity: isWriting ? 0.5 : 1, pointerEvents: isWriting ? 'none' : 'auto', transition: 'opacity 0.3s' }}>
-            {hasArticle && activeArticle.htmlContent ? (
-              <>
-                {/* Stats Bar */}
-                <div className="statsBar">
-                  <div className="stat">
-                    <span className="statLabel">Başlık</span>
-                    <span className="statValue" style={{ fontSize: 14, fontFamily: 'inherit', color: 'var(--text-primary)' }}>
-                      {activeArticle.title}
-                    </span>
-                  </div>
-                  <div className="statDivider" />
-                  <div className="stat">
-                    <span className="statLabel">Toplam Kelime</span>
-                    <span className="statValue">{activeArticle.wordCount.toLocaleString('tr-TR')}</span>
-                  </div>
-                  <div className="statDivider" />
-                  <div className="stat">
-                    <span className="statLabel">Durum</span>
-                    <span className="statValue" style={{ fontSize: 13, color: isDone ? 'var(--accent-emerald)' : 'var(--accent-amber)' }}>
-                      {isDone ? 'Tamamlandı' : 'Yazım Devam Ediyor'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Rendered Article HTML */}
-                <article
-                  className="articleContent"
-                  dangerouslySetInnerHTML={{ __html: activeArticle.htmlContent }}
-                />
-
-                {/* Phase 1.8 Structured Outputs */}
-                {activeArticle.qualityGate && (
-                  <div style={{ marginTop: 24, padding: 16, backgroundColor: activeArticle.qualityGate.passed ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)', border: `1px solid ${activeArticle.qualityGate.passed ? 'var(--accent-emerald)' : 'var(--accent-rose)'}`, borderRadius: 8 }}>
-                    <h4 style={{ margin: '0 0 12px 0', color: activeArticle.qualityGate.passed ? 'var(--accent-emerald)' : 'var(--accent-rose)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      📊 Kalite Kapısı Denetim Sonuçları (Quality Gate)
-                    </h4>
-                    <div style={{ fontSize: 13, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                      <div><strong>Skor:</strong> {activeArticle.qualityGate.score}/100</div>
-                      <div><strong>Kelime:</strong> {activeArticle.qualityGate.metrics?.wordCount}</div>
-                      <div><strong>Anahtar Kelime Yoğunluğu:</strong> %{activeArticle.qualityGate.metrics?.keywordDensity}</div>
-                    </div>
-                    {activeArticle.qualityGate.failures && activeArticle.qualityGate.failures.length > 0 && (
-                      <div style={{ marginTop: 12, padding: 8, backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 4, color: 'var(--accent-rose)', fontSize: 13 }}>
-                        <strong>İhlaller:</strong>
-                        <ul style={{ margin: '4px 0 0 16px' }}>
-                          {activeArticle.qualityGate.failures.map((f: string, i: number) => <li key={i}>{f}</li>)}
-                        </ul>
+                        ))}
                       </div>
                     )}
-                  </div>
-                )}
+                    
+                    {project.knowledgeBase.status === 'DRAFT' ? (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+                        <button className="btn btnPrimary" onClick={handleApproveKB} disabled={loading !== null}>
+                          {loading === 'approveKB' ? <span className="spinner" /> : '🔒 Anayasayı Onayla ve Strateji Üret'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+                        <button className="btn btnPrimary" onClick={handleGenerateStrategy} disabled={loading !== null}>
+                          {loading === 'generateStrategy' ? <span className="spinner" /> : '🎯 Strateji & İçerik Planı Üret'}
+                        </button>
+                      </div>
+                    )}
+                 </div>
+               </div>
+             ) : (
+               <div className="card"><div className="cardBody">Anayasa henüz türetilmedi.</div></div>
+             )}
+           </div>
+         )}
 
-                {activeArticle.faq && (
-                  <div style={{ marginTop: 24 }}>
-                    <h4 style={{ margin: '0 0 12px 0' }}>❓ Sıkça Sorulan Sorular (FAQ)</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      {activeArticle.faq.map((item: any, i: number) => (
-                        <div key={i} style={{ padding: 12, backgroundColor: 'var(--surface-50)', border: '1px solid var(--border-subtle)', borderRadius: 6 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Q: {item.question}</div>
-                          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>A: {item.answer}</div>
+         {/* Step 4: Strategy */}
+         {displayStep === 3 && (
+           <div className="stepContent">
+              {strategy ? (
+                 <div className="card">
+                   <div className="cardHeader"><span className="cardTitle">🧠 Birleşik İçerik Stratejisi</span></div>
+                   <div className="cardBody">
+                     <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>{strategy.summary}</p>
+                     
+                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                        <button className="btn btnOutline" onClick={handleGapAnalysis} disabled={loading !== null || !project?.contentPlan}>
+                          {loading === 'gapAnalysis' ? <span className="spinner" /> : '🕵️ Gap Analizi Çalıştır'}
+                        </button>
+                     </div>
+
+                     {project?.contentPlan?.suggestedGaps && project.contentPlan.suggestedGaps.length > 0 && (
+                        <div style={{ marginTop: 24, padding: 16, background: 'rgba(52, 211, 153, 0.1)', borderRadius: 8 }}>
+                          <h4 style={{ margin: '0 0 12px 0', color: '#34d399' }}>🎯 Gap Fırsatları (Onay Bekliyor)</h4>
+                          {project.contentPlan.suggestedGaps.map((gap: any, index: number) => (
+                             <div key={index} style={{ display: 'flex', justifyContent: 'space-between', padding: 12, background: 'rgba(15, 23, 42, 0.5)', marginBottom: 8, borderRadius: 6 }}>
+                               <div>
+                                 <div style={{ fontWeight: 500, color: '#f8fafc' }}>{gap.title}</div>
+                                 <div style={{ fontSize: 12, color: '#94a3b8' }}>Odak: {gap.focusKeyword}</div>
+                               </div>
+                               <button className="btn btnPrimary btnMini" onClick={() => handleApproveGap(gap)}>+ Plana Ekle</button>
+                             </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                     )}
+                   </div>
+                 </div>
+              ) : (
+                 <div className="card"><div className="cardBody">Strateji henüz üretilmedi.</div></div>
+              )}
+           </div>
+         )}
 
-                {activeArticle.schemaMarkup && (
-                  <div style={{ marginTop: 24 }}>
-                    <h4 style={{ margin: '0 0 12px 0' }}>🛠️ JSON-LD Schema Markup</h4>
-                    <pre style={{ padding: 12, backgroundColor: 'var(--surface-50)', border: '1px solid var(--border-subtle)', borderRadius: 6, fontSize: 11, overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
-                      {typeof activeArticle.schemaMarkup === 'string' ? activeArticle.schemaMarkup : JSON.stringify(activeArticle.schemaMarkup, null, 2)}
-                    </pre>
-                  </div>
-                )}
+         {/* Step 5: Production */}
+         {displayStep === 4 && (
+           <div className="stepContent">
+             <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+               {/* Left: Articles List */}
+               <div style={{ flex: '0 0 300px' }}>
+                 <div className="card">
+                   <div className="cardHeader"><span className="cardTitle">Makaleler</span></div>
+                   <div className="cardBody" style={{ padding: 0 }}>
+                     {articles.map((art: any) => (
+                       <div key={art.id} onClick={() => selectArticle(art.id)} style={{ padding: 16, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', background: art.id === selectedArticleId ? 'var(--surface-100)' : 'transparent' }}>
+                         <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 4 }}>{art.title}</div>
+                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+                           <span>{art.state === 'PREVIEW_READY' ? 'Tamamlandı' : 'Bekliyor'}</span>
+                           <span>{art.wordCount} kelime</span>
+                         </div>
+                       </div>
+                     ))}
+                     {articles.length === 0 && (
+                       <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>Henüz makale yok.</div>
+                     )}
+                   </div>
+                 </div>
+               </div>
 
-                {activeArticle.versions && activeArticle.versions.length > 0 && (
-                  <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid var(--border-subtle)' }}>
-                    <h4 style={{ margin: '0 0 12px 0', fontSize: 14 }}>📜 Versiyon Geçmişi</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {activeArticle.versions.map((v, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: 'var(--surface-50)', borderRadius: 6, fontSize: 12 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <span style={{ fontWeight: 600, color: 'var(--accent-indigo)' }}>v{v.versionNumber}</span>
-                            <span style={{ color: 'var(--text-secondary)' }}>{v.changeNote}</span>
-                          </div>
-                          <div style={{ color: 'var(--text-muted)' }}>
-                            {new Date(v.createdAt).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}
-                          </div>
+               {/* Right: Active Article Pipeline & Quality Gate */}
+               <div style={{ flex: 1 }}>
+                 {hasArticle ? (
+                   <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                     <div className="card">
+                       <div className="cardHeader" style={{ justifyContent: 'space-between' }}>
+                         <span className="cardTitle">{activeArticle.title} Pipeline</span>
+                         <div style={{ display: 'flex', gap: 8 }}>
+                           <button className="btn btnPrimary btnMini" onClick={() => triggerNext(false)} disabled={loading !== null || isDone}>Sıradaki Bölüm</button>
+                           <button className="btn btnSuccess btnMini" onClick={handleTriggerAll} disabled={loading !== null || isDone}>Tümünü Yaz</button>
+                         </div>
+                       </div>
+                       <div className="cardBody">
+                         {(activeArticle.articlePlan?.outline as any[])?.map((item, index) => {
+                           const stepStatus = getStepStatus(index);
+                           const section = activeArticle.sections?.find((s) => s.order === index + 1);
+                           return (
+                             <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                               <div style={{ fontSize: 16, width: 24, textAlign: 'center' }}>
+                                 {stepStatus === 'complete' ? '✅' : stepStatus === 'active' ? '✍️' : '⏳'}
+                               </div>
+                               <div style={{ flex: 1 }}>
+                                 <div style={{ fontWeight: 500, fontSize: 14 }}>{item.title}</div>
+                                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                   {stepStatus === 'complete' ? `${section?.wordCount} kelime` : stepStatus === 'active' ? 'Yazılıyor...' : 'Bekliyor'}
+                                 </div>
+                               </div>
+                               {stepStatus === 'complete' && section && !isWriting && (
+                                 <button className="btn btnOutline btnMini" onClick={() => setRewriteSectionId(rewriteSectionId === section.id ? null : section.id)}>
+                                   🔄 Düzelt
+                                 </button>
+                               )}
+                             </div>
+                           );
+                         })}
+                         
+                         {/* Rewrite Box */}
+                         {rewriteSectionId && (
+                           <div style={{ marginTop: 16, padding: 16, background: 'var(--surface-50)', borderRadius: 8 }}>
+                             <textarea className="formInput" rows={2} placeholder="Neyi değiştirmek istersiniz?" value={rewriteFeedback} onChange={e => setRewriteFeedback(e.target.value)} />
+                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                               <button className="btn btnOutline btnMini" onClick={() => setRewriteSectionId(null)}>İptal</button>
+                               <button className="btn btnPrimary btnMini" onClick={handleRewriteSubmit}>Gönder</button>
+                             </div>
+                           </div>
+                         )}
+                       </div>
+                     </div>
+
+                     {/* Quality Gate UI */}
+                     {activeArticle.qualityGate && (
+                        <div className="card" style={{ border: `1px solid ${activeArticle.qualityGate.passed ? 'var(--accent-emerald)' : 'var(--accent-rose)'}` }}>
+                           <div className="cardHeader" style={{ background: activeArticle.qualityGate.passed ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)' }}>
+                             <span className="cardTitle" style={{ color: activeArticle.qualityGate.passed ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                               {activeArticle.qualityGate.passed ? '✅ Quality Gate: Geçti' : '❌ Quality Gate: İhlaller Var'}
+                             </span>
+                             <span style={{ fontWeight: 600 }}>{activeArticle.qualityGate.score}/100</span>
+                           </div>
+                           <div className="cardBody">
+                              <div style={{ display: 'flex', gap: 24, fontSize: 13, marginBottom: 16 }}>
+                                <div><strong>Kelime:</strong> {activeArticle.qualityGate.metrics?.wordCount}</div>
+                                <div><strong>Density:</strong> %{activeArticle.qualityGate.metrics?.keywordDensity}</div>
+                              </div>
+                              {activeArticle.qualityGate.failures?.length > 0 && (
+                                <div style={{ background: 'rgba(239,68,68,0.1)', padding: 12, borderRadius: 6 }}>
+                                  <div style={{ fontWeight: 600, color: 'var(--accent-rose)', marginBottom: 8 }}>Tespit Edilen İhlaller:</div>
+                                  <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--accent-rose)', fontSize: 13 }}>
+                                    {activeArticle.qualityGate.failures.map((f: string, i: number) => <li key={i}>{f}</li>)}
+                                  </ul>
+                                  {/* Auto Rewrite Action for Quality Gate */}
+                                  <button className="btn btnPrimary btnMini" style={{ marginTop: 12, background: 'var(--accent-rose)', color: 'white', border: 'none' }} onClick={() => {
+                                      setRewriteSectionId(activeArticle.sections?.[0]?.id || null);
+                                      setRewriteFeedback('Quality gate hatalarını gider: ' + activeArticle.qualityGate.failures.join(', '));
+                                  }}>
+                                    🔄 İhlalleri Gider (Yeniden Yaz)
+                                  </button>
+                                </div>
+                              )}
+                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : hasArticle ? (
-              <div className="previewEmpty">
-                <div className="previewEmptyIcon">📄</div>
-                <div className="previewEmptyTitle">{activeArticle.title}</div>
-                <div className="previewEmptyHint">
-                  Bu makale henüz yazılmadı. Sağ üstteki "Sıradaki Bölümü Yaz" veya "Tümünü Otomatik Yaz" butonlarına tıklayarak yazımı başlatın.
+                     )}
+                   </div>
+                 ) : (
+                   <div className="card"><div className="cardBody" style={{ textAlign: 'center', padding: 40 }}>Sol taraftan bir makale seçin.</div></div>
+                 )}
+               </div>
+             </div>
+           </div>
+         )}
+         
+         {/* Collapsible Log Panel at bottom */}
+         <details style={{ marginTop: 40, background: 'var(--surface-50)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+           <summary style={{ padding: 16, cursor: 'pointer', fontWeight: 500, userSelect: 'none' }}>📜 Detaylı İşlem Logları</summary>
+           <div className="logContainer" ref={logContainerRef} style={{ padding: 16, maxHeight: 300, overflowY: 'auto', borderTop: '1px solid var(--border-subtle)' }}>
+             {logs.length === 0 ? <div style={{color: 'var(--text-muted)'}}>Log yok.</div> : logs.map((log, i) => (
+                <div key={i} className={`logEntry ${log.type === 'success' ? 'logSuccess' : log.type === 'error' ? 'logError' : 'logInfo'}`}>
+                  <span className="logTime">{log.time}</span><span>{log.message}</span>
                 </div>
-              </div>
-            ) : (
-              <div className="previewEmpty">
-                <div className="previewEmptyIcon">📄</div>
-                <div className="previewEmptyTitle">Henüz İçerik Seçilmedi</div>
-                <div className="previewEmptyHint">
-                  Sol panelden "Seed &amp; Sıfırla" butonuna tıklayıp test makalesini yükleyebilir veya marka kaynaklarını analiz edip sıfırdan planlar üretebilirsiniz.
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+             ))}
+           </div>
+         </details>
       </div>
     </div>
   );

@@ -8,34 +8,34 @@ generator client {
 }
 
 model User {
-  id            String          @id @default(cuid())
-  email         String          @unique
-  name          String?
-  password      String?         // Hashed password
-  memberships   Membership[]
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String?
+  password    String? // Hashed password
+  memberships Membership[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model Project {
-  id            String        @id @default(cuid())
+  id             String         @id @default(cuid())
   organizationId String
-  organization   Organization  @relation(fields: [organizationId], references: [id])
+  organization   Organization   @relation(fields: [organizationId], references: [id])
   knowledgeBase  KnowledgeBase?
-  name          String
-  siteUrl       String
-  state         ProjectState  @default(CREATED)
-  
-  siteAudit     SiteAudit?
-  sources       ContentSource[]
-  competitors   Competitor[]
-  strategy      Strategy?
-  contentPlan   ContentPlan?
-  articles      Article[]
-  
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  lastError       String?
+  name           String
+  siteUrl        String
+  state          ProjectState   @default(CREATED)
+
+  siteAudit   SiteAudit?
+  sources     ContentSource[]
+  competitors Competitor[]
+  strategy    Strategy?
+  contentPlan ContentPlan?
+  articles    Article[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastError String?
 }
 
 enum ProjectState {
@@ -60,84 +60,85 @@ enum ProjectState {
 }
 
 model SiteAudit {
-  id                 String   @id @default(cuid())
-  projectId          String   @unique
-  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
+  id        String  @id @default(cuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   performanceScore   Float?
   seoScore           Float?
   accessibilityScore Float?
   mobileScore        Float?
-  
-  existingPages      Json     // Array of: {url, title, h1, wordCount, keywords}
-  existingKeywords   Json     // Array of: {keyword, position, url}
-  
-  domain             String
-  cms                String?  // e.g. "wordpress", "shopify"
-  language           String?
-  region             String?  // GEO target region (e.g. "TR")
-  brandInfo          Json?    // {industry, targetAudience, toneOfVoice}
-  auditMatrix        Json?    // 100-point audit: {totalScore, breakdown: {metadata, hierarchy, depth, geoEntity}}
-  actionPlan         Json?    // AI-generated remediation steps: string[]
-  
-  rawData            Json?
-  approvedAt         DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  existingPages    Json // Array of: {url, title, h1, wordCount, keywords}
+  existingKeywords Json // Array of: {keyword, position, url}
+
+  domain      String
+  cms         String? // e.g. "wordpress", "shopify"
+  language    String?
+  region      String? // GEO target region (e.g. "TR")
+  brandInfo   Json? // {industry, targetAudience, toneOfVoice}
+  auditMatrix Json? // 100-point audit: {totalScore, breakdown: {metadata, hierarchy, depth, geoEntity}}
+  actionPlan  Json? // AI-generated remediation steps: string[]
+
+  rawData    Json?
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 model Competitor {
-  id               String   @id @default(cuid())
-  projectId        String
-  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
-  siteUrl          String
-  domain           String
-  source           String   // "serp", "user_input", "content_similarity"
-  
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  siteUrl String
+  domain  String
+  source  String // "serp", "user_input", "content_similarity"
+
   domainRating     Float?
   organicTraffic   Int?
   totalKeywords    Int?
-  topKeywords      Json?     // Array of: {keyword, position, volume}
-  contentGaps      Json?     // Keywords they have but we lack
-  topContent       Json?     // Array of: {url, title, backlinks, traffic}
-  publishFrequency String?  // "daily", "weekly", "monthly"
-  
-  analyzed         Boolean  @default(false)
-  approvedAt       DateTime?
-  createdAt        DateTime @default(now())
+  topKeywords      Json? // Array of: {keyword, position, volume}
+  contentGaps      Json? // Keywords they have but we lack
+  topContent       Json? // Array of: {url, title, backlinks, traffic}
+  publishFrequency String? // "daily", "weekly", "monthly"
+
+  analyzed   Boolean   @default(false)
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
   @@index([projectId])
-  updatedAt DateTime @updatedAt
 }
 
 model Strategy {
-  id              String             @id @default(cuid())
-  projectId       String             @unique
-  project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
-  summary         String?
-  targetKeywords  Json?              // Keyword clusters
-  contentPillars  Json?              // Content silos/categories
-  geoTargets      Json?              // GEO target specifications
-  contentMix      Json?              // {informational: 40, transactional: 30, local: 30}
-  monthlyTarget   Int?
-  
+  id        String  @id @default(cuid())
+  projectId String  @unique
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  summary        String?
+  targetKeywords Json? // Keyword clusters
+  contentPillars Json? // Content silos/categories
+  geoTargets     Json? // GEO target specifications
+  contentMix     Json? // {informational: 40, transactional: 30, local: 30}
+  monthlyTarget  Int?
+
   pillarFocus     String?
   keywordClusters Json?
   contentPlans    ContentPlan[]
-  
-  revisions       StrategyRevision[]
-  version         Int                @default(1)
-  approvedAt      DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+
+  revisions  StrategyRevision[]
+  version    Int                @default(1)
+  approvedAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
 }
 
 model StrategyRevision {
-  id           String   @id @default(cuid())
-  strategyId   String
-  strategy     Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
-  
+  id         String   @id @default(cuid())
+  strategyId String
+  strategy   Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+
   userFeedback String
   changes      String
   version      Int
@@ -145,46 +146,47 @@ model StrategyRevision {
 }
 
 model ContentPlan {
-  id            String   @id @default(cuid())
-  projectId     String   @unique
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  projectId     String    @unique
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   strategyId    String?
   strategy      Strategy? @relation(fields: [strategyId], references: [id])
-  status        String   @default("DRAFT")
-  suggestedGaps Json?    // Celery'den gelecek olan [{ title, focusKeyword, type: 'new_article'/'lsi_suggestion' }] yapısı
-  
-  articles      ArticlePlan[]
-  approvedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status        String    @default("DRAFT")
+  suggestedGaps Json? // Celery'den gelecek olan [{ title, focusKeyword, type: 'new_article'/'lsi_suggestion' }] yapısı
+
+  articles   ArticlePlan[]
+  approvedAt DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
 }
 
 model ArticlePlan {
-  id               String   @id @default(cuid())
-  projectId        String?
-  contentPlanId    String
-  contentPlan      ContentPlan @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
-  
-  order            Int
-  slug             String?
-  title            String
-  focusKeyword     String?
+  id            String      @id @default(cuid())
+  projectId     String?
+  contentPlanId String
+  contentPlan   ContentPlan @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
+
+  order             Int
+  slug              String?
+  title             String
+  focusKeyword      String?
   secondaryKeywords Json?
-  searchIntent     String?
-  contentType      String    // "how-to", "listicle", "guide", "comparison", "local"
-  targetWordCount  Int?
-  priority         String?    // "quick-win", "medium-term", "long-term"
-  geoTarget        String?
-  outline          Json?     // Dynamic outline array
-  
-  outboundLinks    InternalLink[] @relation("SourceLinks")
-  inboundLinks     InternalLink[] @relation("TargetLinks")
-  
-  article          Article?
-  status           String    @default("planned") // planned, in_progress, produced, published
-  createdAt        DateTime  @default(now())
-  @@index([contentPlanId])
+  searchIntent      String?
+  contentType       String // "how-to", "listicle", "guide", "comparison", "local"
+  targetWordCount   Int?
+  priority          String? // "quick-win", "medium-term", "long-term"
+  geoTarget         String?
+  outline           Json? // Dynamic outline array
+
+  outboundLinks InternalLink[] @relation("SourceLinks")
+  inboundLinks  InternalLink[] @relation("TargetLinks")
+
+  article   Article?
+  status    String   @default("planned") // planned, in_progress, produced, published
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([contentPlanId])
 }
 
 model InternalLink {
@@ -196,56 +198,58 @@ model InternalLink {
   anchorText   String
   status       String      @default("planned") // planned, placed, verified
   createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
   @@index([sourcePlanId])
   @@index([targetPlanId])
-  updatedAt DateTime @updatedAt
 }
 
 model Article {
-  id              String         @id @default(cuid())
-  projectId       String
-  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  articlePlanId   String?        @unique
-  articlePlan     ArticlePlan?   @relation(fields: [articlePlanId], references: [id])
-  
+  id            String       @id @default(cuid())
+  projectId     String
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  articlePlanId String?      @unique
+  articlePlan   ArticlePlan? @relation(fields: [articlePlanId], references: [id])
+
   title           String
   slug            String
   metaDescription String
   htmlContent     String
   excerpt         String?
-  
-  focusKeyword    String
-  seoScore        Float?
+
+  focusKeyword     String
+  seoScore         Float?
   readabilityScore Float?
-  wordCount       Int
-  
-  featuredImage   Json?          // {url, alt, source}
-  inlineImages    Json?          // Array of: {url, alt, source, position}
-  
-  wpInstructions  Json? // { category: string, slug: string, tags: string[] }
-  faq             Json? // Array of { question: string, answer: string }
-  geoReference    Json? // { citationHtml: string, contextSummary: string }
-  schemaMarkup    Json? // JSON-LD string veya nesnesi (Article + FAQPage)
-  qualityGate     Json? // { passed: boolean, score: number, failures: string[], metrics: { wordCount: number, keywordDensity: number } }
-  
-  state           ArticleState   @default(OUTLINE_DRAFT)
-  
-  cmsPostId       String?
-  cmsPostUrl      String?
-  publishedAt     DateTime?
-  
+  wordCount        Int
+
+  featuredImage Json? // {url, alt, source}
+  inlineImages  Json? // Array of: {url, alt, source, position}
+
+  wpInstructions Json? // { category: string, slug: string, tags: string[] }
+  faq            Json? // Array of { question: string, answer: string }
+  geoReference   Json? // { citationHtml: string, contextSummary: string }
+  schemaMarkup   Json? // JSON-LD string veya nesnesi (Article + FAQPage)
+  qualityGate    Json? // { passed: boolean, score: number, failures: string[], metrics: { wordCount: number, keywordDensity: number } }
+
+  state ArticleState @default(OUTLINE_DRAFT)
+
+  cmsPostId   String?
+  cmsPostUrl  String?
+  publishedAt DateTime?
+
   outlineApprovedAt DateTime?
   seoAuditPassedAt  DateTime?
   userApprovedAt    DateTime?
-  
-  versions        ArticleVersion[]
-  sections        ArticleSection[]
-  currentVersion  Int            @default(1)
-  
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+
+  versions       ArticleVersion[]
+  sections       ArticleSection[]
+  currentVersion Int              @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastError String?
+
   @@unique([projectId, slug])
-  lastError       String?
 }
 
 enum ArticleState {
@@ -264,54 +268,54 @@ enum ArticleState {
 }
 
 model ArticleVersion {
-  id              String   @id @default(cuid())
-  articleId       String
-  article         Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  versionNumber   Int
-  htmlContent     String
-  wpInstructions  Json?
-  changeNote      String?  // Kullanıcının veya AI'ın değişim notu (örn: "H2 başlığı üslup sebebiyle yeniden yazdırıldı")
-  createdById     String?  // Değişikliği yapan kullanıcı (opsiyonel)
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  articleId      String
+  article        Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  versionNumber  Int
+  htmlContent    String
+  wpInstructions Json?
+  changeNote     String? // Kullanıcının veya AI'ın değişim notu (örn: "H2 başlığı üslup sebebiyle yeniden yazdırıldı")
+  createdById    String? // Değişikliği yapan kullanıcı (opsiyonel)
+  createdAt      DateTime @default(now())
+  faq            Json?
+  schemaMarkup   Json?
 
   @@index([articleId])
-  faq              Json?
-  schemaMarkup     Json?
 }
 
 model ArticleSection {
-  id              String   @id @default(cuid())
-  articleId       String
-  article         Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  
-  headingTitle    String
-  headingLevel    Int
-  order           Int      // Section sequence number for recovery
-  
-  htmlContent     String
-  wordCount       Int
-  
-  sources         Json?    // Sources / references used: [{title, url}]
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String  @id @default(cuid())
+  articleId String
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  headingTitle String
+  headingLevel Int
+  order        Int // Section sequence number for recovery
+
+  htmlContent String
+  wordCount   Int
+
+  sources Json? // Sources / references used: [{title, url}]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([articleId, order])
 }
 
 model CMSConnection {
-  id           String    @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  
-  type         String    // "wordpress", "webflow", "ghost"
+
+  type         String // "wordpress", "webflow", "ghost"
   name         String
   siteUrl      String
-  credentials  String    /// @encrypted
+  credentials  String /// @encrypted
   isActive     Boolean   @default(true)
   lastTestedAt DateTime?
-  
-  createdAt    DateTime  @default(now())
+
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
@@ -319,15 +323,16 @@ model ContentSource {
   id            String   @id @default(cuid())
   projectId     String
   project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  type          String   // "WEBSITE", "YOUTUBE", "INSTAGRAM", "CUSTOM"
+  type          String // "WEBSITE", "YOUTUBE", "INSTAGRAM", "CUSTOM"
   url           String?
-  identifier    String?  // @handle, username, etc.
+  identifier    String? // @handle, username, etc.
   displayName   String
   status        String   @default("PENDING") // PENDING, FETCHING, ANALYZED, FAILED
-  extractedData Json?    // JSON with tone, audience, keywords, topics, recentItems
+  extractedData Json? // JSON with tone, audience, keywords, topics, recentItems
   errorMessage  String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
   @@index([projectId])
 }
 
@@ -393,6 +398,7 @@ model ContentRule {
   isActive        Boolean       @default(true)
   origin          RuleOrigin    @default(AI_DERIVED)
   createdAt       DateTime      @default(now())
+
   @@index([knowledgeBaseId])
 }
 
@@ -417,6 +423,7 @@ model ContentPillar {
   scope           String
   colorCode       String?
   createdAt       DateTime      @default(now())
+
   @@index([knowledgeBaseId])
 }
 
@@ -428,5 +435,6 @@ model OutboundLink {
   title           String
   usageArea       String?
   createdAt       DateTime      @default(now())
+
   @@index([knowledgeBaseId])
 }

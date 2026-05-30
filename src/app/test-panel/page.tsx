@@ -852,7 +852,7 @@ export default function TestPanelPage() {
           </div>
 
           {/* ─── Audit Report Card ─── */}
-          {project?.siteAudit?.auditMatrix ? (() => {
+          {project?.siteAudit?.auditMatrix && (project.siteAudit.auditMatrix as any).breakdown ? (() => {
             const audit = project.siteAudit!;
             const matrix = audit.auditMatrix!;
             const score = matrix.totalScore;

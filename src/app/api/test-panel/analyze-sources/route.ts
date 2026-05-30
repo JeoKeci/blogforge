@@ -86,7 +86,7 @@ export async function POST() {
         await prisma.contentSource.update({
           where: { id: source.id },
           data: {
-            status: 'FETCHING', // still fetching/analyzing via celery
+            status: 'ANALYZED',
             extractedData: mergedData
           }
         });
@@ -95,8 +95,32 @@ export async function POST() {
           id: source.id,
           name: source.displayName,
           type: source.type,
-          status: 'SENT_TO_CELERY'
+          status: 'ANALYZED'
         });
+
+        if (source.type === 'WEBSITE') {
+          const domain = (() => { try { return new URL(source.url!).hostname.replace(/^www\./, ''); } catch { return source.url || ''; } })();
+          const auditFields = {
+            domain,
+            brandInfo: {
+              industry: result.industry || '',
+              targetAudience: result.targetAudience || '',
+              toneOfVoice: result.toneOfVoice || '',
+              detectedArchetype: result.detectedArchetype || '',
+              detectedKeywords: result.detectedKeywords || [],
+            },
+            auditMatrix: result.audit ?? null,
+            actionPlan: result.actionPlan ?? [],
+            rawData: result,
+            seoScore: result.audit?.totalScore ?? null,
+          };
+          console.log('ABOUT TO UPSERT');
+          await prisma.siteAudit.upsert({
+            where: { projectId: TEST_PROJECT_ID },
+            update: auditFields,
+            create: { projectId: TEST_PROJECT_ID, ...auditFields, existingPages: result.existingPages ?? [], existingKeywords: result.existingKeywords ?? [] },
+          });
+        }
 
       } catch (err: any) {
         console.error(`Error analyzing source ${source.id}:`, err.message);

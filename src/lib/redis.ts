@@ -10,7 +10,9 @@ function createRedisClient() {
   return new Redis(url, {
     maxRetriesPerRequest: 3,
     // Upstash requires TLS, but use secure validation by default unless ALLOW_INSECURE_TLS is true
-    tls: url.startsWith('rediss://') ? { rejectUnauthorized: process.env.ALLOW_INSECURE_TLS === 'true' } : undefined,
+    tls: url.startsWith('rediss://') ? {
+      rejectUnauthorized: process.env.ALLOW_INSECURE_TLS !== 'true'
+    } : undefined,
   });
 }
 

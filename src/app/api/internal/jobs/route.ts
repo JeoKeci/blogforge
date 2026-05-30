@@ -201,10 +201,10 @@ export async function POST(request: Request) {
           });
         }
 
-        // 6. Projenin durumunu SOURCES_ANALYZED aşamasına yükselt
+        // 6. Projenin durumunu KNOWLEDGE_BASE_REVIEW aşamasına yükselt
         await tx.project.update({
           where: { id: projectId },
-          data: { state: 'SOURCES_ANALYZED' }
+          data: { state: 'KNOWLEDGE_BASE_REVIEW' }
         });
       });
 
@@ -395,14 +395,81 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    if (action === 'link_maintenance_complete') {
-      const { articleId, updatedHtml } = body;
-      
-      await prisma.article.update({
-        where: { id: articleId },
-        data: { htmlContent: updatedHtml }
+    if (action === 'retro_link_request') {
+      const { articleId, focusKeyword, newArticleSlug } = body;
+
+      const sections = await prisma.articleSection.findMany({
+        where: { articleId },
+        orderBy: { order: 'asc' }
       });
-      return NextResponse.json({ success: true });
+
+      if (!sections.length) {
+        return NextResponse.json({ success: true, message: 'No sections found.' });
+      }
+
+      const cheerio = await import('cheerio');
+      let modified = false;
+
+      for (const section of sections) {
+        const $ = cheerio.load(section.htmlContent, null, false);
+        const pattern = new RegExp(`\\b(${focusKeyword})\\b`, 'i');
+
+        // find nodes
+        const textNodes: any[] = [];
+        const walk = (node: any) => {
+          if (node.type === 'text') {
+            const parentTag = node.parent?.tagName?.toLowerCase();
+            const badParents = ['a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'title'];
+            const goodParents = ['p', 'li', 'span', 'div', 'td'];
+            if (parentTag && !badParents.includes(parentTag) && goodParents.includes(parentTag)) {
+              textNodes.push(node);
+            }
+          } else if (node.children) {
+            node.children.forEach(walk);
+          }
+        };
+
+        $.root()[0].children.forEach(walk);
+
+        for (const node of textNodes) {
+          if (pattern.test(node.data)) {
+            const match = node.data.match(pattern);
+            if (match) {
+              const matchedWord = match[0];
+              const newHtml = node.data.replace(pattern, `<a href="/blog/${newArticleSlug}">${matchedWord}</a>`);
+              $(node).replaceWith(newHtml);
+              modified = true;
+              break;
+            }
+          }
+        }
+
+        if (modified) {
+          const updatedHtmlContent = $.html();
+          await prisma.articleSection.update({
+            where: { id: section.id },
+            data: { htmlContent: updatedHtmlContent }
+          });
+          break; // only update first matched section
+        }
+      }
+
+      if (modified) {
+        const updatedSections = await prisma.articleSection.findMany({
+          where: { articleId },
+          orderBy: { order: 'asc' }
+        });
+        const mergedHtml = updatedSections
+          .map(s => `<h${s.headingLevel || 2}>${s.headingTitle}</h${s.headingLevel || 2}>\n${s.htmlContent}`)
+          .join('\n\n');
+
+        await prisma.article.update({
+          where: { id: articleId },
+          data: { htmlContent: mergedHtml }
+        });
+      }
+
+      return NextResponse.json({ success: true, message: 'Retro link maintenance completed.' });
     }
     if (action === 'sources_analyzed') {
   const { projectId, results } = body;

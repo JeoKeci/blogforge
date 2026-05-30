@@ -46,13 +46,13 @@ def generate_section_iterative(self, article_id, project_id, section_order, head
         
         TON: {tone}
         
-        BİR ÖNCEKİ BÖLÜM (Akıcılığı sağlamak için oku ama aynısını yazma):
-        {previous_content}
+        BİR ÖNCEKİ BÖLÜMÜN SON KISMI (SADECE bağlam ve akıcılık için oku, KESİNLİKLE ÇIKTIYA DAHİL ETME!):
+        {previous_content[-1000:] if previous_content else ''}
         
         YAZILACAK BÖLÜMÜN BAŞLIĞI:
         {heading_title}
         
-        Görevin: Sadece belirtilen başlık altındaki metni {language} dilinde, zengin ve akıcı HTML formatında (p, strong, ul, li kullanarak) yaz. Başlığı metnin içine tekrar ekleme.
+        Görevin: SADECE YENİ BÖLÜMÜ "{language}" dilinde yaz. Önceki bölümden hiçbir cümleyi tekrar etme. Yalnızca belirtilen başlık altındaki metni zengin ve akıcı HTML formatında (p, strong, ul, li kullanarak) üret. Başlığın kendisini veya H1/H2 etiketlerini KESİNLİKLE çıktıya ekleme, doğrudan paragrafa başla.
         """
         
         if user_feedback:
@@ -119,11 +119,15 @@ class OutboundLinkItem(BaseModel):
     title: str = Field(description="Bağlantı başlığı veya kurum adı")
     usage_area: str = Field(description="Bu linkin hangi içeriklerde kullanılacağı talimatı")
 
+class InstructionItem(BaseModel):
+    key: str = Field(description="Talimat adi (orn: minWords, language, tone)")
+    value: str = Field(description="Talimat degeri (orn: 4000, nl, B2B technical)")
+
 class ConstitutionResponse(BaseModel):
     verified_facts: List[FactItem]
     brand_entities: List[BrandEntityItem]
-    writing_instructions: Dict[str, Any] # {minWords: 4000, language: "nl", tone: "B2B technical"}
-    generated_checklist: List[str] # Kalite kapısında kontrol edilecek siteye özel 15-20 maddelik checklist
+    writing_instructions: List[InstructionItem] # {key: "minWords", value: "4000"}
+    generated_checklist: List[str] # Kalite kapisinda kontrol edilecek siteye ozel 15-20 maddelik checklist
     rules: List[RuleItem]
     pillars: List[PillarItem]
     outbound_links: List[OutboundLinkItem]
@@ -289,6 +293,7 @@ def produce_article_factory(self, article_id: str, html_content: str, knowledge_
     kantitatif kalite kapısını (Quality Gate) test eder.
     """
     try:
+        import json, re
         print(f"[{article_id}] Makale Fabrikası çalışıyor...")
         
         # 1. Quality Gate: Kantitatif Ölçüm (Kelime sayısı, Hedef kelime density vs.)
@@ -296,7 +301,6 @@ def produce_article_factory(self, article_id: str, html_content: str, knowledge_
         text_content = soup.get_text(separator=' ')
         word_count = len(re.findall(r'\w+', text_content))
         
-        import json, re
         kb = json.loads(knowledge_base_str) if knowledge_base_str else {}
         rules = kb.get("rules", [])
         wi = kb.get("writingInstructions", {}) or {}

@@ -17,8 +17,15 @@ export async function buildConstitution(projectId: string): Promise<Constitution
   });
   if (!kb || kb.status !== 'APPROVED') return null;
 
-  const wi = (kb.writingInstructions as any) || {};
-  const language = wi.language || 'en';
+  let wi: any = {};
+  if (Array.isArray(kb.writingInstructions)) {
+    (kb.writingInstructions as any[]).forEach(item => {
+      if (item.key && item.value) wi[item.key] = item.value;
+    });
+  } else {
+    wi = (kb.writingInstructions as any) || {};
+  }
+  const language = wi.language || 'tr';
   const tone = wi.tone || '';
   const minWords = Number(wi.minWords) || 1500;
 

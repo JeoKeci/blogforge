@@ -15,8 +15,6 @@ export async function POST(request: Request) {
       const userId = 'test-user-id';
       const projectId = 'test-project-id';
       const contentPlanId = 'test-content-plan-id';
-      const articlePlanId = 'test-article-plan-id';
-      const articleId = 'test-article-id';
 
       // Clean existing test data (reverse FK order)
       await prisma.articleSection.deleteMany();
@@ -58,15 +56,7 @@ export async function POST(request: Request) {
 
         // 4. Test Project
         await tx.project.create({
-          data: { id: projectId, organizationId: orgId, name: 'Test Project', siteUrl: 'https://example.com', state: 'CREATED', createdAt: now, updatedAt: now },
-        });
-
-        // 5. Default Sources
-        await tx.contentSource.create({
-          data: { projectId, type: 'WEBSITE', url: 'https://geocenter.com', displayName: 'GeoCenter Blog', status: 'PENDING' }
-        });
-        await tx.contentSource.create({
-          data: { projectId, type: 'YOUTUBE', identifier: '@GeocKece', displayName: '@GeocKece Kanalı', status: 'PENDING' }
+          data: { id: projectId, organizationId: orgId, name: 'Test Project', siteUrl: '', state: 'CREATED', createdAt: now, updatedAt: now },
         });
       });
 
@@ -74,50 +64,7 @@ export async function POST(request: Request) {
         data: { id: contentPlanId, projectId, createdAt: now },
       });
 
-      const outline = [
-        { title: '1. Giriş', level: 2 },
-        { title: '2. SEO Uyumlu Makale Nasıl Yazılır?', level: 2 },
-        { title: '3. Sonuç', level: 2 },
-      ];
-
-      await prisma.articlePlan.create({
-        data: {
-          id: articlePlanId,
-          contentPlanId,
-          order: 1,
-          title: 'SEO Uyumlu Makale Yazım Kılavuzu',
-          focusKeyword: 'seo uyumlu makale',
-          secondaryKeywords: '[]',
-          searchIntent: 'informational',
-          contentType: 'guide',
-          targetWordCount: 1000,
-          priority: 'high',
-          geoTarget: 'TR',
-          outline,
-          status: 'planned',
-          createdAt: now,
-        },
-      });
-
-      await prisma.article.create({
-        data: {
-          id: articleId,
-          projectId,
-          articlePlanId,
-          title: 'SEO Uyumlu Makale Yazım Kılavuzu',
-          slug: 'seo-uyumlu-makale-yazim-kilavuzu',
-          metaDescription: 'SEO uyumlu makale yazımı hakkında detaylı kılavuz.',
-          htmlContent: '',
-          focusKeyword: 'seo uyumlu makale',
-          wordCount: 0,
-          state: 'OUTLINE_APPROVED',
-          currentVersion: 1,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      return NextResponse.json({ success: true, message: 'Test verisi başarıyla oluşturuldu.' });
+      return NextResponse.json({ success: true, message: 'Temel test verisi (boş içerik planı ile) başarıyla oluşturuldu.' });
     }
 
     // ─── TRIGGER: Dispatch the next section to Celery ───

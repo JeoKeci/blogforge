@@ -114,7 +114,7 @@ export async function POST() {
             rawData: result,
             seoScore: result.audit?.totalScore ?? null,
           };
-          console.log('ABOUT TO UPSERT');
+
           await prisma.siteAudit.upsert({
             where: { projectId: TEST_PROJECT_ID },
             update: auditFields,

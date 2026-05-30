@@ -57,3 +57,7 @@ worker/.venv/
 worker/__pycache__/
 worker/.env
 prisma/*.db
+
+# antigravity/dev debris
+/patch_*.py
+scratch/
